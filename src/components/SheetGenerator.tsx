@@ -93,6 +93,8 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
   const effectiveLineCount =
     essayLineCount > 0
       ? essayLineCount
+      : currentExam.questionCount <= 12
+      ? 22
       : currentExam.questionCount <= 20
       ? 18
       : currentExam.questionCount <= 30
@@ -1999,20 +2001,62 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-3">
                 {Array.from({ length: currentExam.questionCount }).map((_, idx) => {
                   const qNum = idx + 1;
+                  const qType = currentExam.questionTypes?.[qNum] || currentExam.defaultQuestionType || "multiple_choice";
+
                   return (
                     <div key={qNum} className="flex items-center justify-between border-b border-slate-200 pb-1 text-[11px]">
                       <span className="font-bold w-7 text-right pr-1 font-mono">{qNum}.</span>
-                      <div className="flex items-center gap-1.5" translate="no">
-                        {(["A", "B", "C", "D"] as const).map((choice) => (
-                          <div
-                            key={choice}
-                            translate="no"
-                            className="notranslate w-5 h-5 rounded-full border border-black flex items-center justify-center font-bold text-[9px] bg-white text-black"
-                          >
-                            {choice}
+
+                      {qType === "multiple_choice" && (
+                        <div className="flex items-center gap-1.5" translate="no">
+                          {(["A", "B", "C", "D"] as const).map((choice) => (
+                            <div
+                              key={choice}
+                              translate="no"
+                              className="notranslate w-5 h-5 rounded-full border border-black flex items-center justify-center font-bold text-[9px] bg-white text-black"
+                            >
+                              {choice}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {qType === "true_false" && (
+                        <div className="flex items-center gap-2" translate="no">
+                          <span className="text-[9px] text-slate-500 font-sans italic">(Đ/S)</span>
+                          {["Đ", "S"].map((choice) => (
+                            <div
+                              key={choice}
+                              translate="no"
+                              className="notranslate w-5 h-5 rounded-full border border-black flex items-center justify-center font-bold text-[9px] bg-white text-black"
+                            >
+                              {choice}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {qType === "matching" && (
+                        <div className="flex items-center gap-1" translate="no">
+                          {["1-A", "1-B", "1-C", "1-D"].map((choice) => (
+                            <div
+                              key={choice}
+                              translate="no"
+                              className="notranslate px-1 h-5 rounded border border-black flex items-center justify-center font-bold text-[8px] bg-white text-black"
+                            >
+                              {choice}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {qType === "fill_blank" && (
+                        <div className="flex items-center pl-1 flex-1">
+                          <div className="w-full h-5 border border-black rounded bg-slate-50 text-[9px] text-slate-400 font-mono flex items-center px-1">
+                            [   Điền   ]
                           </div>
-                        ))}
-                      </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}

@@ -1,11 +1,13 @@
+export type QuestionType = "multiple_choice" | "true_false" | "matching" | "fill_blank";
+
 export interface AnswerKeyOption {
   question: number;
-  answer: "A" | "B" | "C" | "D";
+  answer: string;
 }
 
 export interface ExamCodeKey {
   code: string; // e.g., "101", "102"
-  answers: Record<number, "A" | "B" | "C" | "D">;
+  answers: Record<number, string>;
 }
 
 export interface Exam {
@@ -13,10 +15,12 @@ export interface Exam {
   title: string;
   subject: string;
   gradeClass: string; // e.g. "Khối 8", "8A1"
-  questionCount: number; // 20, 30, 40, 50
+  questionCount: number; // 5, 7, 8, 9, 10, 11, 12, 15, 20, 30, 40, 50
   durationMinutes: number;
   createdAt: string;
-  examKeys: Record<string, Record<number, "A" | "B" | "C" | "D">>; // code -> { qNum: ans }
+  defaultQuestionType?: QuestionType;
+  questionTypes?: Record<number, QuestionType>; // qNum -> QuestionType
+  examKeys: Record<string, Record<number, string>>; // code -> { qNum: ans }
   status: "draft" | "active" | "archived";
 }
 

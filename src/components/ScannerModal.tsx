@@ -476,45 +476,91 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-[300px] overflow-y-auto pr-1">
-                    {editableAnswers.map((ans) => (
-                      <div
-                        key={ans.question}
-                        className={`p-2.5 rounded-xl border flex items-center justify-between text-xs transition-all ${
-                          ans.isCorrect
-                            ? "bg-emerald-50/80 border-emerald-200 text-emerald-900"
-                            : "bg-red-50/80 border-red-200 text-red-900"
-                        }`}
-                      >
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-bold font-mono">C{ans.question}:</span>
-                          <span className="font-extrabold text-indigo-700">
-                            {ans.marked === "NONE" ? "Trống" : ans.marked}
-                          </span>
-                          {!ans.isCorrect && (
-                            <span className="text-[10px] text-slate-500 font-semibold">
-                              (Đúng: {ans.correctAnswer})
-                            </span>
-                          )}
-                        </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[300px] overflow-y-auto pr-1">
+                    {editableAnswers.map((ans) => {
+                      const qType = selectedExam.questionTypes?.[ans.question] || selectedExam.defaultQuestionType || "multiple_choice";
 
-                        <div className="flex items-center gap-1">
-                          {(["A", "B", "C", "D"] as const).map((choice) => (
-                            <button
-                              key={choice}
-                              onClick={() => handleManualOverrideAnswer(ans.question, choice)}
-                              className={`w-5 h-5 rounded text-[10px] font-bold ${
-                                ans.marked === choice
-                                  ? "bg-indigo-600 text-white"
-                                  : "bg-white text-slate-600 border"
-                              }`}
-                            >
-                              {choice}
-                            </button>
-                          ))}
+                      return (
+                        <div
+                          key={ans.question}
+                          className={`p-2.5 rounded-xl border flex items-center justify-between text-xs transition-all ${
+                            ans.isCorrect
+                              ? "bg-emerald-50/80 border-emerald-200 text-emerald-900"
+                              : "bg-red-50/80 border-red-200 text-red-900"
+                          }`}
+                        >
+                          <div className="flex flex-col gap-0.5 max-w-[50%]">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold font-mono">C{ans.question}:</span>
+                              <span className="font-extrabold text-indigo-700 truncate">
+                                {ans.marked === "NONE" ? "Trống" : ans.marked}
+                              </span>
+                            </div>
+                            {!ans.isCorrect && (
+                              <span className="text-[10px] text-slate-500 font-semibold truncate">
+                                (Đúng: {ans.correctAnswer})
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1">
+                            {qType === "multiple_choice" &&
+                              (["A", "B", "C", "D"] as const).map((choice) => (
+                                <button
+                                  key={choice}
+                                  onClick={() => handleManualOverrideAnswer(ans.question, choice)}
+                                  className={`w-5 h-5 rounded text-[10px] font-bold ${
+                                    ans.marked === choice
+                                      ? "bg-indigo-600 text-white"
+                                      : "bg-white text-slate-600 border"
+                                  }`}
+                                >
+                                  {choice}
+                                </button>
+                              ))}
+
+                            {qType === "true_false" &&
+                              (["Đ", "S"] as const).map((choice) => (
+                                <button
+                                  key={choice}
+                                  onClick={() => handleManualOverrideAnswer(ans.question, choice)}
+                                  className={`px-1.5 h-5 rounded text-[10px] font-bold ${
+                                    ans.marked === choice
+                                      ? "bg-indigo-600 text-white"
+                                      : "bg-white text-slate-600 border"
+                                  }`}
+                                >
+                                  {choice}
+                                </button>
+                              ))}
+
+                            {qType === "matching" &&
+                              (["1-A", "1-B", "1-C", "1-D"] as const).map((choice) => (
+                                <button
+                                  key={choice}
+                                  onClick={() => handleManualOverrideAnswer(ans.question, choice)}
+                                  className={`px-1 h-5 rounded text-[9px] font-bold ${
+                                    ans.marked === choice
+                                      ? "bg-amber-600 text-white"
+                                      : "bg-white text-slate-600 border"
+                                  }`}
+                                >
+                                  {choice}
+                                </button>
+                              ))}
+
+                            {qType === "fill_blank" && (
+                              <input
+                                type="text"
+                                value={ans.marked}
+                                onChange={(e) => handleManualOverrideAnswer(ans.question, e.target.value)}
+                                className="w-20 bg-white border border-slate-300 rounded px-1.5 py-0.5 text-[11px] font-bold text-slate-900"
+                              />
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 

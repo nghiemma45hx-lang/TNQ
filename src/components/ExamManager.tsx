@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { Exam } from "../types";
-import { Plus, Edit3, Trash2, Key, Printer, CheckCircle, FileSpreadsheet, Copy, Sparkles, Save, HelpCircle, ArrowLeft } from "lucide-react";
+import { Exam, QuestionType } from "../types";
+import { Plus, Edit3, Trash2, Key, Printer, CheckCircle, FileSpreadsheet, Copy, Sparkles, Save, HelpCircle, ArrowLeft, Check, ListChecks, Link, Type } from "lucide-react";
 
 interface ExamManagerProps {
   exams: Exam[];
@@ -29,16 +29,29 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
   const [newGrade, setNewGrade] = useState("Khối 8");
   const [newQuestionCount, setNewQuestionCount] = useState<number>(40);
   const [newDuration, setNewDuration] = useState<number>(45);
+  const [newDefaultType, setNewDefaultType] = useState<QuestionType>("multiple_choice");
 
   const handleCreateNewExam = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
 
-    // Generate default answer keys for code 101
-    const defaultKeys101: Record<number, "A" | "B" | "C" | "D"> = {};
-    const options: ("A" | "B" | "C" | "D")[] = ["A", "B", "C", "D"];
+    // Generate default answer keys for code 101 based on default type
+    const defaultKeys101: Record<number, string> = {};
+    const qTypesMap: Record<number, QuestionType> = {};
+
     for (let i = 1; i <= newQuestionCount; i++) {
-      defaultKeys101[i] = options[(i - 1) % 4];
+      qTypesMap[i] = newDefaultType;
+      if (newDefaultType === "multiple_choice") {
+        const options = ["A", "B", "C", "D"];
+        defaultKeys101[i] = options[(i - 1) % 4];
+      } else if (newDefaultType === "true_false") {
+        defaultKeys101[i] = i % 2 === 1 ? "Đ" : "S";
+      } else if (newDefaultType === "matching") {
+        const pairs = ["1-A", "1-B", "1-C", "1-D"];
+        defaultKeys101[i] = pairs[(i - 1) % 4];
+      } else {
+        defaultKeys101[i] = "Đáp án " + i;
+      }
     }
 
     const created: Exam = {
@@ -49,6 +62,8 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
       questionCount: newQuestionCount,
       durationMinutes: newDuration,
       createdAt: new Date().toISOString().split("T")[0],
+      defaultQuestionType: newDefaultType,
+      questionTypes: qTypesMap,
       status: "active",
       examKeys: {
         "101": defaultKeys101,
@@ -62,7 +77,7 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
     setNewTitle("");
   };
 
-  const handleUpdateAnswerKey = (questionNum: number, choice: "A" | "B" | "C" | "D") => {
+  const handleUpdateAnswerKey = (questionNum: number, choice: string) => {
     if (!selectedExam) return;
     const currentKeys = selectedExam.examKeys[activeCode] || {};
     const updatedCodeKeys = { ...currentKeys, [questionNum]: choice };
@@ -77,6 +92,33 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
 
     setSelectedExam(updatedExam);
     onSaveExam(updatedExam);
+  };
+
+  const handleUpdateQuestionType = (questionNum: number, type: QuestionType) => {
+    if (!selectedExam) return;
+    const updatedTypes = { ...(selectedExam.questionTypes || {}), [questionNum]: type };
+    const updatedExam: Exam = {
+      ...selectedExam,
+      questionTypes: updatedTypes,
+    };
+    setSelectedExam(updatedExam);
+    onSaveExam(updatedExam);
+  };
+
+  const handleApplyAllQuestionType = (type: QuestionType) => {
+    if (!selectedExam) return;
+    const updatedTypes: Record<number, QuestionType> = {};
+    for (let i = 1; i <= selectedExam.questionCount; i++) {
+      updatedTypes[i] = type;
+    }
+    const updatedExam: Exam = {
+      ...selectedExam,
+      defaultQuestionType: type,
+      questionTypes: updatedTypes,
+    };
+    setSelectedExam(updatedExam);
+    onSaveExam(updatedExam);
+    triggerSaveToast();
   };
 
   const handleAddNewCode = () => {
@@ -299,44 +341,160 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
                 </button>
               </div>
 
+              {/* Quick Batch Question Type Switcher */}
+              <div className="bg-indigo-50/70 p-3 rounded-xl border border-indigo-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="text-xs font-bold text-indigo-900 flex items-center gap-1.5">
+                  <ListChecks className="w-4 h-4 text-indigo-600" />
+                  <span>Áp dụng dạng câu hỏi cho toàn bộ bài thi:</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    onClick={() => handleApplyAllQuestionType("multiple_choice")}
+                    className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors"
+                  >
+                    Trắc nghiệm (A,B,C,D)
+                  </button>
+                  <button
+                    onClick={() => handleApplyAllQuestionType("true_false")}
+                    className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors"
+                  >
+                    Đúng / Sai (Đ,S)
+                  </button>
+                  <button
+                    onClick={() => handleApplyAllQuestionType("matching")}
+                    className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors"
+                  >
+                    Câu hỏi Nối
+                  </button>
+                  <button
+                    onClick={() => handleApplyAllQuestionType("fill_blank")}
+                    className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white text-sky-700 border border-sky-200 hover:bg-sky-100 transition-colors"
+                  >
+                    Điền khuyết
+                  </button>
+                </div>
+              </div>
+
               {/* Answer Key Grid */}
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
                     Bảng Đáp Án Chi Tiết Mã Đề {activeCode} ({selectedExam.questionCount} Câu)
                   </h3>
-                  <span className="text-[11px] text-slate-500">Bấm chọn A, B, C, D để cập nhật</span>
+                  <span className="text-[11px] text-slate-500">Bấm chọn hoặc nhập đáp án theo dạng câu hỏi</span>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-2.5 max-h-[420px] overflow-y-auto pr-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 max-h-[440px] overflow-y-auto pr-1">
                   {Array.from({ length: selectedExam.questionCount }).map((_, index) => {
                     const qNum = index + 1;
                     const currentAns = selectedExam.examKeys[activeCode]?.[qNum] || "A";
+                    const qType: QuestionType = selectedExam.questionTypes?.[qNum] || selectedExam.defaultQuestionType || "multiple_choice";
 
                     return (
                       <div
                         key={qNum}
-                        className="bg-slate-50/80 p-2 rounded-xl border border-slate-200 flex flex-col items-center gap-1.5"
+                        className="bg-slate-50/90 p-2.5 rounded-xl border border-slate-200 flex flex-col justify-between gap-2 hover:border-slate-300 transition-colors"
                       >
-                        <span className="text-[11px] font-bold text-slate-500">Câu {qNum}</span>
-                        <div className="flex items-center gap-1">
-                          {(["A", "B", "C", "D"] as const).map((choice) => {
-                            const isSelected = currentAns === choice;
-                            return (
-                              <button
-                                key={choice}
-                                onClick={() => handleUpdateAnswerKey(qNum, choice)}
-                                className={`w-7 h-7 rounded-lg text-xs font-bold transition-all ${
-                                  isSelected
-                                    ? "bg-indigo-600 text-white shadow-xs scale-105"
-                                    : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-200/60"
-                                }`}
-                              >
-                                {choice}
-                              </button>
-                            );
-                          })}
+                        <div className="flex items-center justify-between border-b border-slate-200/60 pb-1.5">
+                          <span className="text-xs font-bold text-slate-800">Câu {qNum}</span>
+                          <select
+                            value={qType}
+                            onChange={(e) => handleUpdateQuestionType(qNum, e.target.value as QuestionType)}
+                            className="text-[10px] font-extrabold rounded-md px-1.5 py-0.5 border border-slate-200 bg-white cursor-pointer"
+                          >
+                            <option value="multiple_choice">Trắc nghiệm</option>
+                            <option value="true_false">Đúng / Sai</option>
+                            <option value="matching">Dạng Nối</option>
+                            <option value="fill_blank">Điền khuyết</option>
+                          </select>
                         </div>
+
+                        {/* RENDER ANSWER INPUT BASED ON QUESTION TYPE */}
+                        {qType === "multiple_choice" && (
+                          <div className="flex items-center justify-center gap-1">
+                            {(["A", "B", "C", "D"] as const).map((choice) => {
+                              const isSelected = currentAns === choice;
+                              return (
+                                <button
+                                  key={choice}
+                                  onClick={() => handleUpdateAnswerKey(qNum, choice)}
+                                  className={`w-7 h-7 rounded-lg text-xs font-bold transition-all ${
+                                    isSelected
+                                      ? "bg-indigo-600 text-white shadow-xs scale-105"
+                                      : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-200/60"
+                                  }`}
+                                >
+                                  {choice}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {qType === "true_false" && (
+                          <div className="flex items-center justify-center gap-2">
+                            {[
+                              { label: "Đúng", val: "Đ" },
+                              { label: "Sai", val: "S" },
+                            ].map((tf) => {
+                              const isSelected = currentAns === tf.val;
+                              return (
+                                <button
+                                  key={tf.val}
+                                  onClick={() => handleUpdateAnswerKey(qNum, tf.val)}
+                                  className={`flex-1 py-1 rounded-lg text-xs font-bold transition-all ${
+                                    isSelected
+                                      ? tf.val === "Đ"
+                                        ? "bg-emerald-600 text-white shadow-xs"
+                                        : "bg-red-600 text-white shadow-xs"
+                                      : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-100"
+                                  }`}
+                                >
+                                  {tf.label} ({tf.val})
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {qType === "matching" && (
+                          <div className="space-y-1.5">
+                            <div className="grid grid-cols-2 gap-1 text-[10px]">
+                              {["1-A", "1-B", "1-C", "1-D"].map((pair) => (
+                                <button
+                                  key={pair}
+                                  onClick={() => handleUpdateAnswerKey(qNum, pair)}
+                                  className={`py-0.5 rounded text-[10px] font-bold border ${
+                                    currentAns === pair
+                                      ? "bg-amber-500 text-white border-amber-600"
+                                      : "bg-white text-slate-700 border-slate-200 hover:bg-amber-50"
+                                  }`}
+                                >
+                                  {pair}
+                                </button>
+                              ))}
+                            </div>
+                            <input
+                              type="text"
+                              value={currentAns}
+                              onChange={(e) => handleUpdateAnswerKey(qNum, e.target.value)}
+                              placeholder="Tùy chỉnh ghép (vd: 1-A, 2-C)"
+                              className="w-full bg-white border border-slate-200 rounded px-2 py-0.5 text-[11px] text-slate-800 font-mono focus:outline-indigo-600"
+                            />
+                          </div>
+                        )}
+
+                        {qType === "fill_blank" && (
+                          <div className="space-y-1">
+                            <input
+                              type="text"
+                              value={currentAns}
+                              onChange={(e) => handleUpdateAnswerKey(qNum, e.target.value)}
+                              placeholder="Nhập từ / con số..."
+                              className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1 text-xs text-slate-900 font-bold focus:outline-indigo-600"
+                            />
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -408,9 +566,18 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
                   <select
                     value={newQuestionCount}
                     onChange={(e) => setNewQuestionCount(parseInt(e.target.value, 10))}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-indigo-600"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-indigo-600 font-bold text-indigo-900"
                   >
+                    <option value={5}>5 Câu</option>
+                    <option value={7}>7 Câu</option>
+                    <option value={8}>8 Câu</option>
+                    <option value={9}>9 Câu</option>
+                    <option value={10}>10 Câu</option>
+                    <option value={11}>11 Câu</option>
+                    <option value={12}>12 Câu</option>
+                    <option value={15}>15 Câu</option>
                     <option value={20}>20 Câu</option>
+                    <option value={25}>25 Câu</option>
                     <option value={30}>30 Câu</option>
                     <option value={40}>40 Câu (Tiêu chuẩn)</option>
                     <option value={50}>50 Câu</option>
@@ -426,6 +593,23 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-indigo-600"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Dạng câu hỏi mặc định</label>
+                <select
+                  value={newDefaultType}
+                  onChange={(e) => setNewDefaultType(e.target.value as QuestionType)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold text-indigo-900 focus:outline-indigo-600"
+                >
+                  <option value="multiple_choice">Trắc nghiệm nhiều lựa chọn (A, B, C, D)</option>
+                  <option value="true_false">Dạng Đúng / Sai (Đúng / Sai)</option>
+                  <option value="matching">Dạng Câu hỏi Nối (Matching 1-a, 2-b...)</option>
+                  <option value="fill_blank">Dạng Câu hỏi Điền khuyết (Nhập từ / con số)</option>
+                </select>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  *Sau khi tạo, thầy cô vẫn có thể tùy chỉnh lại dạng câu hỏi cho từng câu riêng biệt.
+                </p>
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
