@@ -15,6 +15,11 @@ import {
   RefreshCw,
   Sparkles,
   FileText,
+  RotateCcw,
+  Trash2,
+  UserPlus,
+  Save,
+  Edit3,
 } from "lucide-react";
 import QRCode from "qrcode";
 import html2canvas from "html2canvas";
@@ -62,6 +67,220 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
   const [selectedStudentIdx, setSelectedStudentIdx] = useState<number>(-1);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Undo History Stack for Student Edits & Deletions
+  interface UndoState {
+    studentList: LoadedStudent[];
+    selectedStudentIdx: number;
+    studentName: string;
+    className: string;
+    sbd: string;
+    examCode: string;
+    description: string;
+  }
+
+  const [undoStack, setUndoStack] = useState<UndoState[]>([]);
+
+  const pushUndoSnapshot = (description: string) => {
+    setUndoStack((prev) => [
+      ...prev.slice(-15),
+      {
+        studentList: [...studentList],
+        selectedStudentIdx,
+        studentName,
+        className,
+        sbd,
+        examCode,
+        description,
+      },
+    ]);
+  };
+
+  const handleUndo = () => {
+    if (undoStack.length === 0) return;
+    const lastState = undoStack[undoStack.length - 1];
+    setUndoStack((prev) => prev.slice(0, prev.length - 1));
+
+    setStudentList(lastState.studentList);
+    const restoredIdx = Math.min(
+      Math.max(0, lastState.selectedStudentIdx),
+      Math.max(0, lastState.studentList.length - 1)
+    );
+    setSelectedStudentIdx(restoredIdx);
+
+    setStudentName(lastState.studentName);
+    setClassName(lastState.className);
+    setSbd(lastState.sbd);
+    setExamCode(lastState.examCode);
+
+    try {
+      localStorage.setItem(
+        "edumark_active_sheet_students",
+        JSON.stringify(lastState.studentList)
+      );
+    } catch (e) {}
+
+    setPdfSuccessMsg(`Đã HOÀN TÁC thành công: "${lastState.description}"`);
+    setTimeout(() => setPdfSuccessMsg(null), 3500);
+  };
+
+  // Action: Save or Update Current Student (SỬA)
+  const handleSaveCurrentStudent = () => {
+    if (studentList.length === 0) {
+      pushUndoSnapshot("Tạo học sinh mới");
+      const newSt: LoadedStudent = {
+        sbd: sbd.trim() || "80101",
+        name: studentName.trim() || "Học Sinh Mới",
+        className: className.trim() || "8A1",
+        examCode: examCode.trim() || "101",
+      };
+      setStudentList([newSt]);
+      setSelectedStudentIdx(0);
+      try {
+        localStorage.setItem("edumark_active_sheet_students", JSON.stringify([newSt]));
+      } catch (e) {}
+
+      if (onSaveClass) {
+        const targetClassName = newSt.className;
+        onSaveClass({
+          id: `CLS-${targetClassName}-${Date.now().toString(36)}`,
+          className: targetClassName,
+          grade: "Khối 8",
+          academicYear: "2025-2026",
+          studentCount: 1,
+          students: [{ sbd: newSt.sbd, name: newSt.name, gradeClass: targetClassName, gender: "Nam" }],
+        });
+      }
+
+      setPdfSuccessMsg(`Đã tạo & lưu học sinh "${newSt.name}" vào CSDL!`);
+      setTimeout(() => setPdfSuccessMsg(null), 3000);
+      return;
+    }
+
+    const targetStudentName = studentList[selectedStudentIdx]?.name || studentName;
+    pushUndoSnapshot(`Sửa thông tin học sinh "${targetStudentName}"`);
+
+    const updatedList = [...studentList];
+    updatedList[selectedStudentIdx] = {
+      sbd: sbd.trim(),
+      name: studentName.trim(),
+      className: className.trim(),
+      examCode: examCode.trim(),
+    };
+
+    setStudentList(updatedList);
+
+    try {
+      localStorage.setItem("edumark_active_sheet_students", JSON.stringify(updatedList));
+    } catch (e) {}
+
+    if (onSaveClass) {
+      const targetClassName = className.trim() || "8A1";
+      const existingClass = classes.find((c) => c.className === targetClassName || c.id === targetClassName);
+      onSaveClass({
+        id: existingClass?.id || `CLS-${targetClassName}-${Date.now().toString(36)}`,
+        className: targetClassName,
+        grade: existingClass?.grade || "Khối 8",
+        academicYear: existingClass?.academicYear || "2025-2026",
+        studentCount: updatedList.length,
+        students: updatedList.map((st) => ({
+          sbd: st.sbd,
+          name: st.name,
+          gradeClass: st.className || targetClassName,
+          gender: "Nam",
+        })),
+      });
+    }
+
+    setPdfSuccessMsg(`Đã LƯU & CẬP NHẬT thông tin học sinh "${studentName}" thành công!`);
+    setTimeout(() => setPdfSuccessMsg(null), 3000);
+  };
+
+  // Action: Delete Current Student (XÓA HS)
+  const handleDeleteCurrentStudent = () => {
+    if (studentList.length === 0 || selectedStudentIdx < 0) return;
+    const currentSt = studentList[selectedStudentIdx];
+    if (!currentSt) return;
+
+    if (!confirm(`Bạn có chắc chắn muốn XÓA học sinh "${currentSt.name}" (SBD: ${currentSt.sbd}) khỏi danh sách?`)) {
+      return;
+    }
+
+    pushUndoSnapshot(`Xóa học sinh "${currentSt.name}"`);
+
+    const updatedList = studentList.filter((_, i) => i !== selectedStudentIdx);
+    const nextIdx = Math.max(0, Math.min(selectedStudentIdx, updatedList.length - 1));
+
+    setStudentList(updatedList);
+    setSelectedStudentIdx(nextIdx);
+
+    if (updatedList.length > 0) {
+      applyStudentData(updatedList[nextIdx]);
+    } else {
+      setStudentName("");
+      setSbd("");
+    }
+
+    try {
+      localStorage.setItem("edumark_active_sheet_students", JSON.stringify(updatedList));
+    } catch (e) {}
+
+    setPdfSuccessMsg(`Đã XÓA học sinh "${currentSt.name}". Bấm "Hoàn tác" để khôi phục.`);
+    setTimeout(() => setPdfSuccessMsg(null), 4000);
+  };
+
+  // Action: Add New Student (THÊM HS)
+  const handleAddNewStudent = () => {
+    pushUndoSnapshot("Thêm học sinh mới");
+
+    const newSbd = `${80100 + studentList.length + 1}`;
+    const newName = `Học Sinh ${studentList.length + 1}`;
+    const availableCodes = Object.keys(currentExam.examKeys || {});
+    const defaultCode = availableCodes.length
+      ? availableCodes[studentList.length % availableCodes.length]
+      : "101";
+
+    const newStudent: LoadedStudent = {
+      sbd: newSbd,
+      name: newName,
+      className: className || "8A1",
+      examCode: defaultCode,
+    };
+
+    const updatedList = [...studentList, newStudent];
+    const newIdx = updatedList.length - 1;
+
+    setStudentList(updatedList);
+    setSelectedStudentIdx(newIdx);
+    applyStudentData(newStudent);
+
+    try {
+      localStorage.setItem("edumark_active_sheet_students", JSON.stringify(updatedList));
+    } catch (e) {}
+
+    setPdfSuccessMsg(`Đã THÊM học sinh "${newName}". Vui lòng chỉnh sửa tên & SBD ở các ô bên dưới.`);
+    setTimeout(() => setPdfSuccessMsg(null), 4000);
+  };
+
+  // Action: Clear Entire Student List (XÓA DS)
+  const handleClearStudentList = () => {
+    if (studentList.length === 0) return;
+    if (!confirm(`Bạn có chắc chắn muốn XÓA TOÀN BỘ ${studentList.length} học sinh trong danh sách?`)) {
+      return;
+    }
+
+    pushUndoSnapshot(`Xóa toàn bộ ${studentList.length} học sinh`);
+
+    setStudentList([]);
+    setSelectedStudentIdx(-1);
+
+    try {
+      localStorage.removeItem("edumark_active_sheet_students");
+    } catch (e) {}
+
+    setPdfSuccessMsg("Đã xóa toàn bộ danh sách. Bấm 'Hoàn tác' để phục hồi lại.");
+    setTimeout(() => setPdfSuccessMsg(null), 4000);
+  };
+
   const sheetRef = useRef<HTMLDivElement>(null);
 
   // Load active saved student list from localStorage if state is empty on mount
@@ -108,6 +327,10 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
   const handleSelectClassRoster = (classId: string) => {
     const foundClass = classes.find((c) => c.id === classId);
     if (!foundClass || !foundClass.students.length) return;
+
+    if (studentList.length > 0) {
+      pushUndoSnapshot(`Đổi sang lớp ${foundClass.className}`);
+    }
 
     const availableCodes = Object.keys(currentExam.examKeys || {});
     const mapped: LoadedStudent[] = foundClass.students.map((st, idx) => {
@@ -827,15 +1050,55 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
 
             {/* Student Navigator if loaded */}
             {studentList.length > 0 && (
-              <div className="pt-2 border-t border-slate-200/80 space-y-1.5">
+              <div className="pt-2 border-t border-slate-200/80 space-y-2">
                 <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
-                  <span className="flex items-center gap-1">
+                  <span className="flex items-center gap-1 text-slate-800 font-extrabold">
                     <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
                     Đã tải: {studentList.length} HS
                   </span>
-                  <span className="text-slate-500 font-mono">
-                    {selectedStudentIdx + 1} / {studentList.length}
-                  </span>
+
+                  <div className="flex items-center gap-1.5">
+                    {/* Undo Button */}
+                    <button
+                      type="button"
+                      onClick={handleUndo}
+                      disabled={undoStack.length === 0}
+                      className={`px-2 py-0.5 rounded-md text-[10px] font-bold flex items-center gap-1 transition-all ${
+                        undoStack.length > 0
+                          ? "bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200 cursor-pointer shadow-2xs"
+                          : "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed"
+                      }`}
+                      title={
+                        undoStack.length > 0
+                          ? `Hoàn tác: ${undoStack[undoStack.length - 1].description}`
+                          : "Chưa có hành động để hoàn tác"
+                      }
+                    >
+                      <RotateCcw className="w-3 h-3 text-amber-700" />
+                      <span>Hoàn tác {undoStack.length > 0 ? `(${undoStack.length})` : ""}</span>
+                    </button>
+
+                    {/* Add Student Button */}
+                    <button
+                      type="button"
+                      onClick={handleAddNewStudent}
+                      className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 flex items-center gap-1 cursor-pointer transition-all"
+                      title="Thêm 1 học sinh mới vào danh sách"
+                    >
+                      <UserPlus className="w-3 h-3 text-indigo-600" />
+                      <span>+ Thêm HS</span>
+                    </button>
+
+                    {/* Clear Entire List Button */}
+                    <button
+                      type="button"
+                      onClick={handleClearStudentList}
+                      className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 flex items-center gap-1 cursor-pointer transition-all"
+                      title="Xóa toàn bộ danh sách học sinh"
+                    >
+                      <Trash2 className="w-3 h-3 text-red-500" />
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-1.5">
@@ -931,6 +1194,43 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
                 ))}
               </select>
             </div>
+          </div>
+
+          {/* SỬA / XÓA / HOÀN TÁC Action Toolbar */}
+          <div className="flex items-center justify-between gap-2 pt-0.5">
+            <button
+              type="button"
+              onClick={handleSaveCurrentStudent}
+              className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer"
+              title="Lưu thông tin vừa chỉnh sửa vào danh sách học sinh & CSDL"
+            >
+              <Save className="w-3.5 h-3.5 text-white" />
+              <span>Lưu Sửa Học Sinh</span>
+            </button>
+
+            {studentList.length > 0 && (
+              <button
+                type="button"
+                onClick={handleDeleteCurrentStudent}
+                className="bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                title="Xóa học sinh này khỏi danh sách"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                <span>Xóa HS</span>
+              </button>
+            )}
+
+            {undoStack.length > 0 && (
+              <button
+                type="button"
+                onClick={handleUndo}
+                className="bg-amber-100 hover:bg-amber-200 border border-amber-300 text-amber-900 font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                title={`Hoàn tác: ${undoStack[undoStack.length - 1].description}`}
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-amber-700" />
+                <span>Hoàn Tác</span>
+              </button>
+            )}
           </div>
 
           {/* 4. FEATURE: TRỘN MÃ ĐỀ (Exam Code Shuffling) */}
