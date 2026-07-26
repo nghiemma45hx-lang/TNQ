@@ -71,13 +71,54 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
         windowWidth: element.scrollWidth,
         windowHeight: element.scrollHeight,
         onclone: (clonedDoc) => {
-          // Replace oklch(...) color functions in cloned document stylesheets to prevent html2canvas color parsing errors
-          const styles = clonedDoc.querySelectorAll("style");
+          // 1. Replace style elements containing oklch with new style nodes to update style.sheet
+          const styles = Array.from(clonedDoc.querySelectorAll("style"));
           styles.forEach((style) => {
-            if (style.innerHTML && style.innerHTML.includes("oklch")) {
-              style.innerHTML = style.innerHTML.replace(/oklch\([^)]+\)/g, "#1e293b");
+            if (style.textContent && style.textContent.includes("oklch")) {
+              const sanitized = style.textContent.replace(/oklch\([^)]+\)/g, "#1e293b");
+              const newStyle = clonedDoc.createElement("style");
+              newStyle.textContent = sanitized;
+              if (style.parentNode) {
+                style.parentNode.replaceChild(newStyle, style);
+              }
             }
           });
+
+          // 2. Safely clean any residual oklch rules directly in clonedDoc.styleSheets
+          try {
+            const sheets = Array.from(clonedDoc.styleSheets);
+            sheets.forEach((sheet) => {
+              try {
+                const rules = sheet.cssRules || sheet.rules;
+                if (rules) {
+                  for (let i = rules.length - 1; i >= 0; i--) {
+                    const rule = rules[i];
+                    if (rule.cssText && rule.cssText.includes("oklch")) {
+                      try {
+                        sheet.deleteRule(i);
+                      } catch (err) {
+                        // ignore delete error
+                      }
+                    }
+                  }
+                }
+              } catch (err) {
+                // Ignore cross-origin stylesheet access errors
+              }
+            });
+          } catch (err) {
+            // ignore sheet access error
+          }
+
+          // 3. Ensure target element is properly styled for capture
+          const clonedTarget = clonedDoc.getElementById("omr-sheet-printable");
+          if (clonedTarget) {
+            clonedTarget.style.position = "relative";
+            clonedTarget.style.transform = "none";
+            clonedTarget.style.boxShadow = "none";
+            clonedTarget.style.margin = "0";
+            clonedTarget.style.backgroundColor = "#ffffff";
+          }
         },
       });
 
