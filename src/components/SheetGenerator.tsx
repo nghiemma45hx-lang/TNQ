@@ -85,6 +85,20 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
   const [selectedStudentIdx, setSelectedStudentIdx] = useState<number>(-1);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Essay Ruled Lines Configuration (Dòng kẻ tự luận phía dưới đường kẻ đỏ)
+  const [enableEssayLines, setEnableEssayLines] = useState<boolean>(true);
+  const [essayLineCount, setEssayLineCount] = useState<number>(0); // 0 = Auto
+  const [essayLineStyle, setEssayLineStyle] = useState<"solid" | "dashed" | "grid">("solid");
+
+  const effectiveLineCount =
+    essayLineCount > 0
+      ? essayLineCount
+      : currentExam.questionCount <= 20
+      ? 18
+      : currentExam.questionCount <= 30
+      ? 14
+      : 10;
+
   // Undo History Stack for Student Edits & Deletions
   interface UndoState {
     studentList: LoadedStudent[];
@@ -1854,6 +1868,64 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
             )}
           </div>
 
+          {/* 5. CẤU HÌNH DÒNG KẺ TỰ LUẬN PHÍA DƯỚI ĐƯỜNG KẺ ĐỎ */}
+          <div className="p-3 bg-red-50/70 border border-red-200/80 rounded-xl space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-red-900 flex items-center gap-1.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={enableEssayLines}
+                  onChange={(e) => setEnableEssayLines(e.target.checked)}
+                  className="rounded text-red-600 focus:ring-red-500 w-4 h-4 cursor-pointer"
+                />
+                <span>Tự Sinh Dòng Kẻ Tự Luận</span>
+              </label>
+              <span className="text-[10px] font-bold bg-red-100 text-red-800 px-2 py-0.5 rounded-full border border-red-200">
+                Đường Kẻ Đỏ
+              </span>
+            </div>
+
+            {enableEssayLines && (
+              <div className="space-y-2 pt-1 border-t border-red-200/60">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      Số dòng kẻ:
+                    </label>
+                    <select
+                      value={essayLineCount}
+                      onChange={(e) => setEssayLineCount(Number(e.target.value))}
+                      className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-bold text-slate-800"
+                    >
+                      <option value={0}>Tự động ({currentExam.questionCount <= 20 ? 18 : currentExam.questionCount <= 30 ? 14 : 10} dòng)</option>
+                      <option value={8}>8 Dòng kẻ</option>
+                      <option value={12}>12 Dòng kẻ</option>
+                      <option value={15}>15 Dòng kẻ</option>
+                      <option value={18}>18 Dòng kẻ</option>
+                      <option value={22}>22 Dòng kẻ</option>
+                      <option value={25}>25 Dòng kẻ</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      Kiểu dòng kẻ:
+                    </label>
+                    <select
+                      value={essayLineStyle}
+                      onChange={(e) => setEssayLineStyle(e.target.value as any)}
+                      className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-bold text-slate-800"
+                    >
+                      <option value="solid">Dòng Kẻ Ngang</option>
+                      <option value="dashed">Dòng Nét Đứt</option>
+                      <option value="grid">Dòng Ô Ly</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-xl text-xs text-indigo-900 space-y-1">
             <p className="font-bold">Đặc Điểm Khảo Thí OMR NHQ:</p>
             <p>• 4 góc đen neo định vị chuẩn chống lệch ảnh khi camera nghiêng.</p>
@@ -1866,87 +1938,118 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
           <div
             id="omr-sheet-printable"
             ref={sheetRef}
-            className="bg-white w-[210mm] min-h-[297mm] p-[10mm] shadow-2xl relative text-black font-sans selection:bg-none print:shadow-none print:m-0 print:w-full select-none"
+            className="bg-white w-[210mm] min-h-[297mm] p-[10mm] shadow-2xl relative text-black font-sans selection:bg-none print:shadow-none print:m-0 print:w-full select-none flex flex-col justify-between"
             style={{ fontFamily: "'Inter', sans-serif" }}
           >
-            {/* 4 Corner Anchor Markers */}
-            <div className="absolute top-4 left-4 w-5 h-5 bg-black"></div>
-            <div className="absolute top-4 right-4 w-5 h-5 bg-black"></div>
-            <div className="absolute bottom-4 left-4 w-5 h-5 bg-black"></div>
-            <div className="absolute bottom-4 right-4 w-5 h-5 bg-black"></div>
+            <div>
+              {/* 4 Corner Anchor Markers */}
+              <div className="absolute top-4 left-4 w-5 h-5 bg-black"></div>
+              <div className="absolute top-4 right-4 w-5 h-5 bg-black"></div>
+              <div className="absolute bottom-4 left-4 w-5 h-5 bg-black"></div>
+              <div className="absolute bottom-4 right-4 w-5 h-5 bg-black"></div>
 
-            {/* Header Section */}
-            <div className="border-b-2 border-black pb-3 mb-4">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h2 className="font-extrabold text-base tracking-wide uppercase">TRƯỜNG THCS EDUMARK AI NHQ</h2>
-                  <h3 className="font-bold text-sm text-indigo-900 uppercase mt-0.5">
-                    PHIẾU TRẢ LỜI TRẮC NGHIỆM - {currentExam.subject.toUpperCase()}
-                  </h3>
-                  <p className="text-[11px] font-semibold text-slate-700 mt-0.5">{currentExam.title}</p>
-                </div>
-
-                <div className="text-right flex items-center gap-3">
-                  {qrCanvasUrl && (
-                    <div className="text-center">
-                      <img src={qrCanvasUrl} alt="QR Code SBD" className="w-16 h-16 border border-black p-0.5 rounded" />
-                      <span className="text-[9px] font-mono font-bold block mt-0.5">SBD: {sbd}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Student info lines */}
-              <div className="grid grid-cols-12 gap-2 text-[11px] font-semibold mt-3 pt-2 border-t border-slate-300">
-                <div className="col-span-6">
-                  Họ và tên học sinh: <span className="font-bold underline decoration-dotted">{studentName}</span>
-                </div>
-                <div className="col-span-3">
-                  Lớp: <span className="font-bold underline decoration-dotted">{className}</span>
-                </div>
-                <div className="col-span-3 text-right">
-                  Mã đề: <span className="font-bold text-sm bg-black text-white px-2 py-0.5 rounded">{examCode}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Instruction Notice */}
-            <div className="border border-black p-2 rounded text-[10px] mb-4 bg-slate-50 flex items-center justify-between">
-              <div>
-                <span className="font-bold text-red-600 uppercase">HƯỚNG DẪN TÔ BÀI:</span> Tô kín ô tròn bằng bút chì hoặc bút mực <span className="font-bold text-black">(●)</span>. Không gạch chéo hay đánh dấu ngắt quãng.
-              </div>
-              <div className="flex items-center gap-2 font-mono font-bold">
-                <span>[● Đúng]</span>
-                <span className="text-slate-400">[✖ Sai]</span>
-                <span className="text-slate-400">[✔ Sai]</span>
-              </div>
-            </div>
-
-            {/* Question Bubbles Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-3">
-              {Array.from({ length: currentExam.questionCount }).map((_, idx) => {
-                const qNum = idx + 1;
-                return (
-                  <div key={qNum} className="flex items-center justify-between border-b border-slate-200 pb-1 text-[11px]">
-                    <span className="font-bold w-7 text-right pr-1 font-mono">{qNum}.</span>
-                    <div className="flex items-center gap-1.5" translate="no">
-                      {(["A", "B", "C", "D"] as const).map((choice) => (
-                        <div
-                          key={choice}
-                          translate="no"
-                          className="notranslate w-5 h-5 rounded-full border border-black flex items-center justify-center font-bold text-[9px] bg-white text-black"
-                        >
-                          {choice}
-                        </div>
-                      ))}
-                    </div>
+              {/* Header Section */}
+              <div className="border-b-2 border-black pb-3 mb-4">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h2 className="font-extrabold text-base tracking-wide uppercase">TRƯỜNG THCS EDUMARK AI NHQ</h2>
+                    <h3 className="font-bold text-sm text-indigo-900 uppercase mt-0.5">
+                      PHIẾU TRẢ LỜI TRẮC NGHIỆM - {currentExam.subject.toUpperCase()}
+                    </h3>
+                    <p className="text-[11px] font-semibold text-slate-700 mt-0.5">{currentExam.title}</p>
                   </div>
-                );
-              })}
+
+                  <div className="text-right flex items-center gap-3">
+                    {qrCanvasUrl && (
+                      <div className="text-center">
+                        <img src={qrCanvasUrl} alt="QR Code SBD" className="w-16 h-16 border border-black p-0.5 rounded" />
+                        <span className="text-[9px] font-mono font-bold block mt-0.5">SBD: {sbd}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Student info lines */}
+                <div className="grid grid-cols-12 gap-2 text-[11px] font-semibold mt-3 pt-2 border-t border-slate-300">
+                  <div className="col-span-6">
+                    Họ và tên học sinh: <span className="font-bold underline decoration-dotted">{studentName}</span>
+                  </div>
+                  <div className="col-span-3">
+                    Lớp: <span className="font-bold underline decoration-dotted">{className}</span>
+                  </div>
+                  <div className="col-span-3 text-right">
+                    Mã đề: <span className="font-bold text-sm bg-black text-white px-2 py-0.5 rounded">{examCode}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Instruction Notice */}
+              <div className="border border-black p-2 rounded text-[10px] mb-4 bg-slate-50 flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-red-600 uppercase">HƯỚNG DẪN TÔ BÀI:</span> Tô kín ô tròn bằng bút chì hoặc bút mực <span className="font-bold text-black">(●)</span>. Không gạch chéo hay đánh dấu ngắt quãng.
+                </div>
+                <div className="flex items-center gap-2 font-mono font-bold">
+                  <span>[● Đúng]</span>
+                  <span className="text-slate-400">[✖ Sai]</span>
+                  <span className="text-slate-400">[✔ Sai]</span>
+                </div>
+              </div>
+
+              {/* Question Bubbles Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-3">
+                {Array.from({ length: currentExam.questionCount }).map((_, idx) => {
+                  const qNum = idx + 1;
+                  return (
+                    <div key={qNum} className="flex items-center justify-between border-b border-slate-200 pb-1 text-[11px]">
+                      <span className="font-bold w-7 text-right pr-1 font-mono">{qNum}.</span>
+                      <div className="flex items-center gap-1.5" translate="no">
+                        {(["A", "B", "C", "D"] as const).map((choice) => (
+                          <div
+                            key={choice}
+                            translate="no"
+                            className="notranslate w-5 h-5 rounded-full border border-black flex items-center justify-center font-bold text-[9px] bg-white text-black"
+                          >
+                            {choice}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* RED LINE DIVIDER & AUTO-GENERATED ESSAY RULED LINES */}
+              {enableEssayLines && (
+                <div className="mt-4 pt-1">
+                  <div className="border-t-2 border-red-600 my-2"></div>
+                  <div className="flex items-center justify-between text-[10.5px] font-bold text-red-600 mb-1 px-0.5">
+                    <span className="uppercase tracking-wider">PHẦN BÀI LÀM TỰ LUẬN / GHI CHÚ:</span>
+                    <span className="text-[9px] text-slate-500 font-normal italic">
+                      (Học sinh viết bài làm hoặc ghi chú vào các dòng kẻ phía dưới)
+                    </span>
+                  </div>
+
+                  {/* Auto-generated Ruled Lines */}
+                  <div className="space-y-0 pt-0.5">
+                    {Array.from({ length: effectiveLineCount }).map((_, lineIdx) => (
+                      <div
+                        key={lineIdx}
+                        className={`h-7 w-full ${
+                          essayLineStyle === "dashed"
+                            ? "border-b border-dashed border-slate-300"
+                            : essayLineStyle === "grid"
+                            ? "border-b border-slate-300 bg-[linear-gradient(to_right,#cbd5e1_1px,transparent_1px)] bg-[size:16px_100%]"
+                            : "border-b border-slate-300"
+                        }`}
+                      ></div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Footer stamp */}
-            <div className="absolute bottom-6 right-8 text-[9px] text-slate-400 font-mono">
+            <div className="text-right text-[9px] text-slate-400 font-mono pt-4">
               EduMark AI OMR Standard Sheet v2026 • Form Code: {currentExam.id}
             </div>
           </div>
