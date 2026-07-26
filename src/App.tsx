@@ -300,12 +300,6 @@ export default function App() {
             <span className="bg-slate-100 px-2.5 py-1 rounded-lg text-[10px] font-mono text-slate-600 font-bold">
               v2.5.0-AI-Vision
             </span>
-            <button
-              onClick={() => setIsAdminModalOpen(true)}
-              className="text-indigo-600 font-bold hover:underline text-[11px]"
-            >
-              Đăng nhập Admin (admin/admin)
-            </button>
           </div>
         </div>
       </footer>
