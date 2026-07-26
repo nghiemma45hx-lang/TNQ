@@ -18,6 +18,7 @@ import {
 import QRCode from "qrcode";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
+import * as XLSX from "xlsx";
 
 interface SheetGeneratorProps {
   exams: Exam[];
@@ -119,89 +120,158 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
     applyStudentData(studentList[idx]);
   };
 
-  // Download Sample CSV Template
-  const handleDownloadCsvTemplate = () => {
-    const csvHeader = "\uFEFFSTT,SBD,Họ và Tên,Lớp,Mã Đề\n";
-    const sampleRows = [
-      "1,80101,Nguyễn Văn An,8A1,101",
-      "2,80102,Nghiêm Cao Bảo Lâm,8A1,102",
-      "3,80103,Trần Thị Mai,8A1,103",
-      "4,80104,Lê Hoàng Nam,8A1,104",
-      "5,80105,Phạm Vũ Quốc,8A1,101",
-    ].join("\n");
+  // Download Sample Excel (.xlsx) Template
+  const handleDownloadExcelTemplate = () => {
+    const templateData = [
+      { STT: 1, "Số Báo Danh (SBD)": "80101", "Họ và Tên Học Sinh": "Nguyễn Văn An", "Lớp": "8A1", "Mã Đề": "101" },
+      { STT: 2, "Số Báo Danh (SBD)": "80102", "Họ và Tên Học Sinh": "Nghiêm Cao Bảo Lâm", "Lớp": "8A1", "Mã Đề": "102" },
+      { STT: 3, "Số Báo Danh (SBD)": "80103", "Họ và Tên Học Sinh": "Trần Thị Mai", "Lớp": "8A1", "Mã Đề": "103" },
+      { STT: 4, "Số Báo Danh (SBD)": "80104", "Họ và Tên Học Sinh": "Lê Hoàng Nam", "Lớp": "8A1", "Mã Đề": "104" },
+      { STT: 5, "Số Báo Danh (SBD)": "80105", "Họ và Tên Học Sinh": "Phạm Vũ Quốc", "Lớp": "8A1", "Mã Đề": "101" },
+    ];
 
-    const blob = new Blob([csvHeader + sampleRows], {
-      type: "text/csv;charset=utf-8;",
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", "Mau_Danh_Sach_Hoc_Sinh_OMR.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const worksheet = XLSX.utils.json_to_sheet(templateData);
+
+    // Set auto column widths for Excel
+    worksheet["!cols"] = [
+      { wch: 6 },  // STT
+      { wch: 20 }, // SBD
+      { wch: 26 }, // Họ và Tên
+      { wch: 10 }, // Lớp
+      { wch: 10 }, // Mã Đề
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "DanhSachHocSinh");
+
+    XLSX.writeFile(workbook, "Mau_Danh_Sach_Hoc_Sinh_EduMark.xlsx");
   };
 
-  // Upload CSV Student List
-  const handleFileUploadCsv = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Upload Excel / CSV Student List
+  const handleFileUploadExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
     reader.onload = (event) => {
-      const text = event.target?.result as string;
-      if (!text) return;
+      try {
+        const buffer = event.target?.result as ArrayBuffer;
+        if (!buffer) return;
 
-      const lines = text
-        .split(/\r?\n/)
-        .map((l) => l.trim())
-        .filter((l) => l.length > 0);
+        const workbook = XLSX.read(buffer, { type: "array" });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
 
-      const availableCodes = Object.keys(currentExam.examKeys || {});
-      const parsedStudents: LoadedStudent[] = [];
+        const rawRows: any[][] = XLSX.utils.sheet_to_json(worksheet, {
+          header: 1,
+          defval: "",
+        });
 
-      lines.forEach((line, index) => {
-        // Skip header line if present
-        if (
-          index === 0 &&
-          (line.toLowerCase().includes("sbd") ||
-            line.toLowerCase().includes("họ và tên") ||
-            line.toLowerCase().includes("ho ten"))
-        ) {
+        if (!rawRows || rawRows.length === 0) {
+          alert("File Excel/CSV không có dữ liệu!");
           return;
         }
 
-        // Split by comma or semicolon
-        const parts = line.split(/[,;]/).map((p) => p.trim());
-        if (parts.length >= 2) {
-          // Could be STT, SBD, Name, Class, Code or SBD, Name, Class
+        const availableCodes = Object.keys(currentExam.examKeys || {});
+        const parsedStudents: LoadedStudent[] = [];
+
+        let startRowIdx = 0;
+        let colIndex = {
+          sbd: -1,
+          name: -1,
+          className: -1,
+          examCode: -1,
+        };
+
+        // Scan first 5 rows to identify header row
+        for (let r = 0; r < Math.min(5, rawRows.length); r++) {
+          const rowStr = rawRows[r]
+            .map((cell) => String(cell).toLowerCase().trim())
+            .join(" ");
+
+          if (
+            rowStr.includes("họ") ||
+            rowStr.includes("tên") ||
+            rowStr.includes("sbd") ||
+            rowStr.includes("lớp") ||
+            rowStr.includes("ho ten")
+          ) {
+            startRowIdx = r + 1;
+            rawRows[r].forEach((cellVal, cIdx) => {
+              const str = String(cellVal).toLowerCase().trim();
+              if (
+                str.includes("sbd") ||
+                str.includes("báo danh") ||
+                str.includes("mã hs") ||
+                str.includes("mã sv")
+              ) {
+                colIndex.sbd = cIdx;
+              } else if (
+                str.includes("họ") ||
+                str.includes("tên") ||
+                str.includes("name") ||
+                str.includes("sinh viên") ||
+                str.includes("học sinh")
+              ) {
+                colIndex.name = cIdx;
+              } else if (str.includes("lớp") || str.includes("class")) {
+                colIndex.className = cIdx;
+              } else if (str.includes("mã đề") || str.includes("đề")) {
+                colIndex.examCode = cIdx;
+              }
+            });
+            break;
+          }
+        }
+
+        // Loop over data rows
+        for (let r = startRowIdx; r < rawRows.length; r++) {
+          const row = rawRows[r];
+          if (!row || row.length === 0) continue;
+
           let stSbd = "";
           let stName = "";
           let stClass = className || "8A1";
           let stCode = "";
 
-          if (parts.length >= 4 && !isNaN(Number(parts[0]))) {
-            // Format: STT, SBD, Name, Class, [Code]
-            stSbd = parts[1];
-            stName = parts[2];
-            stClass = parts[3] || className;
-            stCode = parts[4] || "";
+          if (colIndex.name !== -1) {
+            stName = String(row[colIndex.name] || "").trim();
+            stSbd = colIndex.sbd !== -1 ? String(row[colIndex.sbd] || "").trim() : "";
+            stClass =
+              colIndex.className !== -1
+                ? String(row[colIndex.className] || "").trim() || className
+                : className;
+            stCode =
+              colIndex.examCode !== -1 ? String(row[colIndex.examCode] || "").trim() : "";
           } else {
-            // Format: SBD, Name, Class, [Code]
-            stSbd = parts[0];
-            stName = parts[1];
-            stClass = parts[2] || className;
-            stCode = parts[3] || "";
-          }
+            const cleanCells = row
+              .map((cell) => String(cell).trim())
+              .filter((c) => c.length > 0);
 
-          if (!stCode) {
-            const fallbackCode = availableCodes.length
-              ? availableCodes[parsedStudents.length % availableCodes.length]
-              : "101";
-            stCode = fallbackCode;
+            if (cleanCells.length >= 2) {
+              if (cleanCells.length >= 4 && !isNaN(Number(cleanCells[0]))) {
+                // STT, SBD, Name, Class, [Code]
+                stSbd = cleanCells[1];
+                stName = cleanCells[2];
+                stClass = cleanCells[3] || className;
+                stCode = cleanCells[4] || "";
+              } else {
+                // SBD, Name, Class, [Code]
+                stSbd = cleanCells[0];
+                stName = cleanCells[1];
+                stClass = cleanCells[2] || className;
+                stCode = cleanCells[3] || "";
+              }
+            }
           }
 
           if (stName) {
+            if (!stCode) {
+              stCode = availableCodes.length
+                ? availableCodes[parsedStudents.length % availableCodes.length]
+                : "101";
+            }
+
             parsedStudents.push({
               sbd: stSbd || `8010${parsedStudents.length + 1}`,
               name: stName,
@@ -210,20 +280,25 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
             });
           }
         }
-      });
 
-      if (parsedStudents.length > 0) {
-        setStudentList(parsedStudents);
-        setSelectedStudentIdx(0);
-        applyStudentData(parsedStudents[0]);
-        setPdfSuccessMsg(`Đã tải lên thành công danh sách ${parsedStudents.length} học sinh!`);
-        setTimeout(() => setPdfSuccessMsg(null), 5000);
-      } else {
-        alert("Không thể đọc danh sách từ file. Vui lòng kiểm tra lại định dạng CSV.");
+        if (parsedStudents.length > 0) {
+          setStudentList(parsedStudents);
+          setSelectedStudentIdx(0);
+          applyStudentData(parsedStudents[0]);
+          setPdfSuccessMsg(
+            `Đã tải thành công danh sách ${parsedStudents.length} học sinh từ file Excel/CSV!`
+          );
+          setTimeout(() => setPdfSuccessMsg(null), 5000);
+        } else {
+          alert("Không tìm thấy thông tin học sinh trong file Excel. Vui lòng thử file mẫu.");
+        }
+      } catch (err) {
+        console.error("Lỗi đọc file Excel:", err);
+        alert("Có lỗi khi mở file Excel. Vui lòng kiểm tra lại định dạng file.");
       }
     };
 
-    reader.readAsText(file, "UTF-8");
+    reader.readAsArrayBuffer(file);
     if (e.target) e.target.value = "";
   };
 
@@ -446,21 +521,21 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
           </div>
 
           {/* 2. Upload / Download Student List Template section */}
-          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                 <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-                Danh Sách Học Sinh (.CSV)
+                Danh Sách Học Sinh (Excel / CSV)
               </span>
 
               <button
                 type="button"
-                onClick={handleDownloadCsvTemplate}
-                className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 underline flex items-center gap-1 cursor-pointer"
-                title="Tải mẫu file Excel/CSV chuẩn"
+                onClick={handleDownloadExcelTemplate}
+                className="text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 py-1 rounded-lg flex items-center gap-1 cursor-pointer transition-all shadow-2xs"
+                title="Tải biểu mẫu Excel (.xlsx) chuẩn"
               >
-                <Download className="w-3 h-3" />
-                Tải Mẫu
+                <Download className="w-3 h-3 text-emerald-600" />
+                Tải Mẫu Excel (.xlsx)
               </button>
             </div>
 
@@ -468,17 +543,17 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".csv,.txt"
-                onChange={handleFileUploadCsv}
+                accept=".xlsx,.xls,.csv,.txt"
+                onChange={handleFileUploadExcel}
                 className="hidden"
               />
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full bg-white hover:bg-slate-100 border border-slate-300 text-slate-800 font-bold py-2 px-3 rounded-lg text-xs flex items-center justify-center gap-2 shadow-2xs transition-all cursor-pointer"
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-3 rounded-lg text-xs flex items-center justify-center gap-2 shadow-2xs transition-all cursor-pointer"
               >
-                <Upload className="w-3.5 h-3.5 text-slate-600" />
-                Up File Danh Sách Học Sinh (.CSV)
+                <Upload className="w-3.5 h-3.5 text-white" />
+                Up File Danh Sách Học Sinh (.xlsx, .csv)
               </button>
             </div>
 
@@ -736,11 +811,12 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
                 return (
                   <div key={qNum} className="flex items-center justify-between border-b border-slate-200 pb-1 text-[11px]">
                     <span className="font-bold w-7 text-right pr-1 font-mono">{qNum}.</span>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5" translate="no">
                       {(["A", "B", "C", "D"] as const).map((choice) => (
                         <div
                           key={choice}
-                          className="w-5 h-5 rounded-full border border-black flex items-center justify-center font-bold text-[9px] bg-white text-black"
+                          translate="no"
+                          className="notranslate w-5 h-5 rounded-full border border-black flex items-center justify-center font-bold text-[9px] bg-white text-black"
                         >
                           {choice}
                         </div>
