@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Exam } from "../types";
-import { Printer, Download, QrCode, ArrowLeft, RefreshCw, Check, Sparkles } from "lucide-react";
+import { Printer, Download, QrCode, CheckCircle2 } from "lucide-react";
 import QRCode from "qrcode";
 import html2canvas from "html2canvas";
-import jsPDF from "jspdf";
+import { jsPDF } from "jspdf";
 
 interface SheetGeneratorProps {
   exams: Exam[];
@@ -26,6 +26,7 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
   const [examCode, setExamCode] = useState("101");
   const [qrCanvasUrl, setQrCanvasUrl] = useState<string>("");
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [pdfSuccessMsg, setPdfSuccessMsg] = useState<string | null>(null);
 
   const sheetRef = useRef<HTMLDivElement>(null);
 
@@ -51,23 +52,52 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
   const handleDownloadPdf = async () => {
     if (!sheetRef.current) return;
     setIsExportingPdf(true);
+    setPdfSuccessMsg(null);
 
     try {
-      const canvas = await html2canvas(sheetRef.current, {
-        scale: 2,
+      // Small pause to ensure layout & images rendered
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
+      const element = sheetRef.current;
+
+      const canvas = await html2canvas(element, {
+        scale: 2, // High resolution (300 DPI equivalent)
         useCORS: true,
+        allowTaint: true,
+        backgroundColor: "#ffffff",
         logging: false,
+        scrollX: 0,
+        scrollY: 0,
+        windowWidth: element.scrollWidth,
+        windowHeight: element.scrollHeight,
       });
 
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF("p", "mm", "a4");
-      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const imgData = canvas.toDataURL("image/png", 1.0);
+
+      // Create PDF in A4 Portrait mode (210mm x 297mm)
+      const pdf = new jsPDF({
+        orientation: "portrait",
+        unit: "mm",
+        format: "a4",
+        compress: true,
+      });
+
+      const pdfWidth = 210;
       const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
 
-      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
-      pdf.save(`Phieu_Thi_OMR_${currentExam.subject}_${sbd}.pdf`);
-    } catch (err) {
+      // Add image scaled to fit A4 page width
+      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, Math.min(pdfHeight, 297));
+
+      const fileName = `Phieu_OMR_${currentExam.subject || "BaiThi"}_SBD_${sbd || "80101"}_De_${examCode}.pdf`
+        .replace(/\s+/g, "_");
+
+      pdf.save(fileName);
+
+      setPdfSuccessMsg(`Đã xuất file PDF A4 thành công: ${fileName}`);
+      setTimeout(() => setPdfSuccessMsg(null), 5000);
+    } catch (err: any) {
       console.error("PDF generation error:", err);
+      alert("Không thể tạo file PDF tự động. Bạn có thể bấm 'In Ngay' và chọn 'Lưu dưới dạng PDF' của trình duyệt.");
     } finally {
       setIsExportingPdf(false);
     }
@@ -100,25 +130,32 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
           <button
             onClick={handleDownloadPdf}
             disabled={isExportingPdf}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs shadow-md transition-all flex items-center gap-2"
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs shadow-md transition-all flex items-center gap-2 cursor-pointer disabled:opacity-75"
           >
             {isExportingPdf ? (
               <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
             ) : (
               <Download className="w-4 h-4" />
             )}
-            <span>Xuất PDF Chuẩn A4</span>
+            <span>{isExportingPdf ? "Đang Xuất PDF..." : "Xuất PDF Chuẩn A4"}</span>
           </button>
 
           <button
             onClick={handlePrintBrowser}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs shadow-md transition-all flex items-center gap-2"
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs shadow-md transition-all flex items-center gap-2 cursor-pointer"
           >
             <Printer className="w-4 h-4" />
             <span>In Ngay (Print)</span>
           </button>
         </div>
       </div>
+
+      {pdfSuccessMsg && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold px-4 py-3 rounded-xl flex items-center gap-2 shadow-xs">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>{pdfSuccessMsg}</span>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Form: Parameters */}
@@ -202,6 +239,7 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
         {/* Right Preview: Printable Sheet Canvas */}
         <div className="lg:col-span-8 flex justify-center bg-slate-200/60 p-4 sm:p-6 rounded-2xl border border-slate-300/80 overflow-x-auto">
           <div
+            id="omr-sheet-printable"
             ref={sheetRef}
             className="bg-white w-[210mm] min-h-[297mm] p-[10mm] shadow-2xl relative text-black font-sans selection:bg-none print:shadow-none print:m-0 print:w-full select-none"
             style={{ fontFamily: "'Inter', sans-serif" }}
@@ -291,3 +329,4 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
     </div>
   );
 };
+
