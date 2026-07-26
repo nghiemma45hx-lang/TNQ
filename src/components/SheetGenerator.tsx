@@ -20,12 +20,18 @@ import {
   UserPlus,
   Save,
   Edit3,
+  Archive,
+  FolderDown,
+  ChevronDown,
+  Layers,
+  FileStack,
 } from "lucide-react";
 import QRCode from "qrcode";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import * as XLSX from "xlsx";
 import { Document, Packer, Paragraph, ImageRun, AlignmentType } from "docx";
+import JSZip from "jszip";
 
 interface SheetGeneratorProps {
   exams: Exam[];
@@ -63,6 +69,16 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isExportingDocx, setIsExportingDocx] = useState(false);
   const [pdfSuccessMsg, setPdfSuccessMsg] = useState<string | null>(null);
+
+  // Bulk Export State
+  const [isBulkExporting, setIsBulkExporting] = useState<boolean>(false);
+  const [bulkExportProgress, setBulkExportProgress] = useState<{
+    current: number;
+    total: number;
+    studentName: string;
+    actionName: string;
+  } | null>(null);
+  const [showBulkExportMenu, setShowBulkExportMenu] = useState<boolean>(false);
 
   // Student list state (from uploaded CSV or selected class)
   const [studentList, setStudentList] = useState<LoadedStudent[]>([]);
@@ -944,6 +960,259 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
     }
   };
 
+  // Helper to trigger browser download for Blobs
+  const triggerBlobDownload = (blob: Blob, fileName: string) => {
+    const blobUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = blobUrl;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(() => {
+      if (document.body.contains(link)) {
+        document.body.removeChild(link);
+      }
+    }, 1000);
+    return blobUrl;
+  };
+
+  // 1. BULK EXPORT: Merged Multi-Page PDF for all students
+  const handleBulkExportPdfMerged = async () => {
+    if (!sheetRef.current) return;
+    const list = studentList.length > 0 ? studentList : [
+      { sbd: sbd || "80101", name: studentName || "Học Sinh 1", className: className || "8A1", examCode: examCode || "101" }
+    ];
+
+    setIsBulkExporting(true);
+    setPdfSuccessMsg(null);
+    setShowBulkExportMenu(false);
+
+    try {
+      const pdf = new jsPDF({
+        orientation: "portrait",
+        unit: "mm",
+        format: "a4",
+        compress: true,
+      });
+
+      for (let i = 0; i < list.length; i++) {
+        const st = list[i];
+        setSelectedStudentIdx(i);
+        applyStudentData(st);
+        setBulkExportProgress({
+          current: i + 1,
+          total: list.length,
+          studentName: st.name,
+          actionName: `Đang tạo trang PDF A4 phiếu OMR cho học sinh ${st.name}...`,
+        });
+
+        // Delay to allow React state & canvas update
+        await new Promise((resolve) => setTimeout(resolve, 250));
+
+        const canvas = await captureSheetToCanvas(sheetRef.current);
+        const imgData = canvas.toDataURL("image/png", 1.0);
+        const pdfWidth = 210;
+        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+
+        if (i > 0) pdf.addPage();
+        pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, Math.min(pdfHeight, 297));
+      }
+
+      const zipNameClass = className || "Lop";
+      const fileName = `Gop_Phieu_OMR_PDF_Lop_${zipNameClass}_${currentExam.subject || "BaiThi"}_${list.length}HS.pdf`.replace(/\s+/g, "_");
+
+      const pdfBlob = pdf.output("blob");
+      const url = triggerBlobDownload(pdfBlob, fileName);
+
+      setDownloadReady({
+        url,
+        fileName,
+        type: "pdf",
+      });
+
+      setPdfSuccessMsg(`Đã XUẤT ĐỒNG LOẠT GỘP ${list.length} học sinh thành 1 file PDF A4 (${fileName}) thành công!`);
+    } catch (err: any) {
+      console.error("Bulk PDF export error:", err);
+      alert("Lỗi khi xuất đồng loạt PDF: " + (err.message || "Vui lòng thử lại"));
+    } finally {
+      setIsBulkExporting(false);
+      setBulkExportProgress(null);
+    }
+  };
+
+  // 2. BULK EXPORT: ZIP Archive of Word (.docx) files for all students
+  const handleBulkExportDocxZip = async () => {
+    if (!sheetRef.current) return;
+    const list = studentList.length > 0 ? studentList : [
+      { sbd: sbd || "80101", name: studentName || "Học Sinh 1", className: className || "8A1", examCode: examCode || "101" }
+    ];
+
+    setIsBulkExporting(true);
+    setPdfSuccessMsg(null);
+    setShowBulkExportMenu(false);
+
+    try {
+      const zip = new JSZip();
+
+      for (let i = 0; i < list.length; i++) {
+        const st = list[i];
+        setSelectedStudentIdx(i);
+        applyStudentData(st);
+        setBulkExportProgress({
+          current: i + 1,
+          total: list.length,
+          studentName: st.name,
+          actionName: `Đang tạo file Word (.docx) cho học sinh ${st.name}...`,
+        });
+
+        await new Promise((resolve) => setTimeout(resolve, 250));
+
+        const canvas = await captureSheetToCanvas(sheetRef.current);
+        const base64Data = canvas.toDataURL("image/png").replace(/^data:image\/png;base64,/, "");
+        const binaryString = atob(base64Data);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let j = 0; j < len; j++) {
+          bytes[j] = binaryString.charCodeAt(j);
+        }
+
+        const doc = new Document({
+          sections: [
+            {
+              properties: {
+                page: {
+                  margin: {
+                    top: 567,
+                    right: 567,
+                    bottom: 567,
+                    left: 567,
+                  },
+                },
+              },
+              children: [
+                new Paragraph({
+                  alignment: AlignmentType.CENTER,
+                  children: [
+                    new ImageRun({
+                      data: bytes,
+                      type: "png",
+                      transformation: {
+                        width: 595,
+                        height: Math.round((canvas.height * 595) / canvas.width),
+                      },
+                    }),
+                  ],
+                }),
+              ],
+            },
+          ],
+        });
+
+        const docBlob = await Packer.toBlob(doc);
+        const stFileName = `Phieu_OMR_SBD_${st.sbd || (80101 + i)}_${st.name}_De_${st.examCode || "101"}.docx`.replace(/\s+/g, "_");
+        zip.file(stFileName, docBlob);
+      }
+
+      setBulkExportProgress({
+        current: list.length,
+        total: list.length,
+        studentName: "Đóng gói file ZIP...",
+        actionName: "Nén các file Word (.docx)...",
+      });
+
+      const zipContent = await zip.generateAsync({ type: "blob" });
+      const zipFileName = `Bo_Phieu_OMR_Word_Lop_${className || "Lop"}_${list.length}HS.zip`.replace(/\s+/g, "_");
+      const url = triggerBlobDownload(zipContent, zipFileName);
+
+      setDownloadReady({
+        url,
+        fileName: zipFileName,
+        type: "docx",
+      });
+
+      setPdfSuccessMsg(`Đã XUẤT ĐỒNG LOẠT ZIP chứa ${list.length} file Word (.docx) cho toàn lớp thành công!`);
+    } catch (err: any) {
+      console.error("Bulk DOCX export error:", err);
+      alert("Lỗi khi xuất ZIP file Word: " + (err.message || "Vui lòng thử lại"));
+    } finally {
+      setIsBulkExporting(false);
+      setBulkExportProgress(null);
+    }
+  };
+
+  // 3. BULK EXPORT: ZIP Archive of PDF files for all students
+  const handleBulkExportPdfZip = async () => {
+    if (!sheetRef.current) return;
+    const list = studentList.length > 0 ? studentList : [
+      { sbd: sbd || "80101", name: studentName || "Học Sinh 1", className: className || "8A1", examCode: examCode || "101" }
+    ];
+
+    setIsBulkExporting(true);
+    setPdfSuccessMsg(null);
+    setShowBulkExportMenu(false);
+
+    try {
+      const zip = new JSZip();
+
+      for (let i = 0; i < list.length; i++) {
+        const st = list[i];
+        setSelectedStudentIdx(i);
+        applyStudentData(st);
+        setBulkExportProgress({
+          current: i + 1,
+          total: list.length,
+          studentName: st.name,
+          actionName: `Đang tạo trang PDF A4 cho học sinh ${st.name}...`,
+        });
+
+        await new Promise((resolve) => setTimeout(resolve, 250));
+
+        const canvas = await captureSheetToCanvas(sheetRef.current);
+        const imgData = canvas.toDataURL("image/png", 1.0);
+
+        const pdf = new jsPDF({
+          orientation: "portrait",
+          unit: "mm",
+          format: "a4",
+          compress: true,
+        });
+
+        const pdfWidth = 210;
+        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+        pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, Math.min(pdfHeight, 297));
+
+        const pdfArrayBuffer = pdf.output("arraybuffer");
+        const stFileName = `Phieu_OMR_SBD_${st.sbd || (80101 + i)}_${st.name}_De_${st.examCode || "101"}.pdf`.replace(/\s+/g, "_");
+        zip.file(stFileName, pdfArrayBuffer);
+      }
+
+      setBulkExportProgress({
+        current: list.length,
+        total: list.length,
+        studentName: "Đóng gói file ZIP...",
+        actionName: "Nén các file PDF...",
+      });
+
+      const zipContent = await zip.generateAsync({ type: "blob" });
+      const zipFileName = `Bo_Phieu_OMR_PDF_Lop_${className || "Lop"}_${list.length}HS.zip`.replace(/\s+/g, "_");
+      const url = triggerBlobDownload(zipContent, zipFileName);
+
+      setDownloadReady({
+        url,
+        fileName: zipFileName,
+        type: "pdf",
+      });
+
+      setPdfSuccessMsg(`Đã XUẤT ĐỒNG LOẠT ZIP chứa ${list.length} file PDF cho toàn lớp thành công!`);
+    } catch (err: any) {
+      console.error("Bulk PDF ZIP export error:", err);
+      alert("Lỗi khi xuất ZIP PDF: " + (err.message || "Vui lòng thử lại"));
+    } finally {
+      setIsBulkExporting(false);
+      setBulkExportProgress(null);
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
       {/* Top Header Controls */}
@@ -970,9 +1239,9 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
 
           <button
             onClick={handleDownloadDocx}
-            disabled={isExportingDocx}
+            disabled={isExportingDocx || isBulkExporting}
             className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3.5 py-2.5 rounded-xl text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-75"
-            title="Xuất file phiếu trả lời trắc nghiệm chuẩn Word (.docx)"
+            title="Xuất 1 file phiếu trả lời trắc nghiệm chuẩn Word (.docx) cho học sinh đang chọn"
           >
             {isExportingDocx ? (
               <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
@@ -984,9 +1253,9 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
 
           <button
             onClick={handleDownloadPdf}
-            disabled={isExportingPdf}
+            disabled={isExportingPdf || isBulkExporting}
             className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3.5 py-2.5 rounded-xl text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-75"
-            title="Xuất file PDF trang A4 chuẩn in ấn"
+            title="Xuất 1 file PDF trang A4 chuẩn in ấn cho học sinh đang chọn"
           >
             {isExportingPdf ? (
               <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
@@ -995,6 +1264,82 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
             )}
             <span>{isExportingPdf ? "Đang Xuất PDF..." : "Xuất PDF Chuẩn A4"}</span>
           </button>
+
+          {/* BULK EXPORT DROPDOWN MENU */}
+          <div className="relative">
+            <button
+              onClick={() => setShowBulkExportMenu((prev) => !prev)}
+              disabled={isBulkExporting}
+              className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-black px-4 py-2.5 rounded-xl text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-75"
+              title="Xuất đồng loạt nhiều file Word/PDF cho toàn bộ danh sách học sinh"
+            >
+              <Archive className="w-4 h-4 text-purple-200" />
+              <span>Xuất Đồng Loạt ({studentList.length > 0 ? studentList.length : 1} HS)</span>
+              <ChevronDown className={`w-3.5 h-3.5 text-purple-200 transition-transform ${showBulkExportMenu ? "rotate-180" : ""}`} />
+            </button>
+
+            {showBulkExportMenu && (
+              <div className="absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-xl border border-slate-200/90 z-40 p-2 space-y-1 animate-in fade-in zoom-in-95">
+                <div className="px-3 py-1.5 border-b border-slate-100 mb-1">
+                  <p className="text-[11px] font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
+                    <FolderDown className="w-3.5 h-3.5 text-indigo-600" />
+                    Tùy chọn Xuất Đồng Loạt
+                  </p>
+                  <p className="text-[10px] text-slate-500">
+                    Áp dụng cho {studentList.length > 0 ? `${studentList.length} học sinh` : "1 học sinh hiện tại"}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleBulkExportPdfMerged}
+                  className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-indigo-50 text-slate-700 hover:text-indigo-900 transition-all flex items-start gap-2.5 cursor-pointer group"
+                >
+                  <FileStack className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5 group-hover:scale-110 transition-transform" />
+                  <div>
+                    <p className="text-xs font-extrabold text-slate-800 group-hover:text-indigo-900">
+                      Xuất 1 File PDF Gộp
+                    </p>
+                    <p className="text-[10px] text-slate-500">
+                      Gộp toàn bộ phiếu {studentList.length || 1} học sinh thành 1 file PDF A4 duy nhất
+                    </p>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleBulkExportDocxZip}
+                  className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-blue-50 text-slate-700 hover:text-blue-900 transition-all flex items-start gap-2.5 cursor-pointer group"
+                >
+                  <FileText className="w-4 h-4 text-blue-600 shrink-0 mt-0.5 group-hover:scale-110 transition-transform" />
+                  <div>
+                    <p className="text-xs font-extrabold text-slate-800 group-hover:text-blue-900">
+                      Xuất ZIP Bộ File Word (.docx)
+                    </p>
+                    <p className="text-[10px] text-slate-500">
+                      Nén tất cả file Word riêng lẻ của từng học sinh thành 1 file ZIP
+                    </p>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleBulkExportPdfZip}
+                  className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-emerald-50 text-slate-700 hover:text-emerald-900 transition-all flex items-start gap-2.5 cursor-pointer group"
+                >
+                  <Archive className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5 group-hover:scale-110 transition-transform" />
+                  <div>
+                    <p className="text-xs font-extrabold text-slate-800 group-hover:text-emerald-900">
+                      Xuất ZIP Bộ File PDF
+                    </p>
+                    <p className="text-[10px] text-slate-500">
+                      Nén tất cả file PDF riêng lẻ của từng học sinh thành 1 file ZIP
+                    </p>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
 
           <button
             onClick={handlePrintBrowser}
@@ -1005,6 +1350,41 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
           </button>
         </div>
       </div>
+
+      {/* BULK EXPORT PROGRESS MODAL OVERLAY */}
+      {isBulkExporting && bulkExportProgress && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 text-center border border-slate-200 animate-in fade-in zoom-in-95">
+            <div className="w-14 h-14 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
+              <Sparkles className="w-7 h-7 animate-bounce text-indigo-600" />
+            </div>
+            <div>
+              <h3 className="text-base font-black text-slate-900">Đang Xuất Đồng Loạt Phiếu OMR</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Vui lòng không đóng trình duyệt trong khi hệ thống đóng gói các phiếu trả lời.
+              </p>
+            </div>
+
+            <div className="space-y-2 bg-slate-50 p-4 rounded-2xl border border-slate-200/80">
+              <div className="flex justify-between items-center text-xs font-bold text-slate-800">
+                <span className="truncate max-w-[200px] text-left">{bulkExportProgress.studentName}</span>
+                <span className="text-indigo-600 font-mono font-extrabold">
+                  {bulkExportProgress.current} / {bulkExportProgress.total} ({Math.round((bulkExportProgress.current / bulkExportProgress.total) * 100)}%)
+                </span>
+              </div>
+              <div className="w-full bg-slate-200 rounded-full h-3.5 overflow-hidden p-0.5 border border-slate-300">
+                <div
+                  className="bg-gradient-to-r from-indigo-600 to-purple-600 h-full rounded-full transition-all duration-300 shadow-xs"
+                  style={{ width: `${(bulkExportProgress.current / bulkExportProgress.total) * 100}%` }}
+                ></div>
+              </div>
+              <p className="text-[11px] text-slate-500 font-medium italic pt-1">
+                {bulkExportProgress.actionName}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {downloadReady && (
         <div className="bg-emerald-50 border border-emerald-300 text-emerald-950 px-4 py-3 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs animate-fade-in">
