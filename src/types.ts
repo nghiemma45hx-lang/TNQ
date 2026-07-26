@@ -19,6 +19,7 @@ export interface Exam {
   durationMinutes: number;
   createdAt: string;
   defaultQuestionType?: QuestionType;
+  enabledFormats?: Record<QuestionType, boolean>;
   questionTypes?: Record<number, QuestionType>; // qNum -> QuestionType
   examKeys: Record<string, Record<number, string>>; // code -> { qNum: ans }
   status: "draft" | "active" | "archived";

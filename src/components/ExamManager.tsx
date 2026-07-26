@@ -29,29 +29,95 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
   const [newGrade, setNewGrade] = useState("Khối 8");
   const [newQuestionCount, setNewQuestionCount] = useState<number>(40);
   const [newDuration, setNewDuration] = useState<number>(45);
-  const [newDefaultType, setNewDefaultType] = useState<QuestionType>("multiple_choice");
+
+  // Integrated Question Types Checklist
+  const [enabledFormats, setEnabledFormats] = useState<{
+    multiple_choice: boolean;
+    true_false: boolean;
+    matching: boolean;
+    fill_blank: boolean;
+  }>({
+    multiple_choice: true,
+    true_false: true,
+    matching: false,
+    fill_blank: false,
+  });
 
   const handleCreateNewExam = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
 
-    // Generate default answer keys for code 101 based on default type
+    // Get active question types from checklist
+    const activeTypes = (Object.keys(enabledFormats) as QuestionType[]).filter(
+      (k) => enabledFormats[k]
+    );
+    const finalActiveTypes = activeTypes.length > 0 ? activeTypes : (["multiple_choice"] as QuestionType[]);
+
+    // Generate answer keys and question type assignment per question
     const defaultKeys101: Record<number, string> = {};
     const qTypesMap: Record<number, QuestionType> = {};
 
-    for (let i = 1; i <= newQuestionCount; i++) {
-      qTypesMap[i] = newDefaultType;
-      if (newDefaultType === "multiple_choice") {
-        const options = ["A", "B", "C", "D"];
-        defaultKeys101[i] = options[(i - 1) % 4];
-      } else if (newDefaultType === "true_false") {
-        defaultKeys101[i] = i % 2 === 1 ? "Đ" : "S";
-      } else if (newDefaultType === "matching") {
-        const pairs = ["1-A", "1-B", "1-C", "1-D"];
-        defaultKeys101[i] = pairs[(i - 1) % 4];
-      } else {
-        defaultKeys101[i] = "Đáp án " + i;
+    // Calculate smart distribution of questions if multiple types checked
+    // E.g., for MoET style (40 questions): 18 Multiple Choice, 12 True/False, 10 Short answer/Matching
+    let mcCount = 0;
+    let tfCount = 0;
+    let matchCount = 0;
+    let fillCount = 0;
+
+    if (finalActiveTypes.length === 1) {
+      const soleType = finalActiveTypes[0];
+      if (soleType === "multiple_choice") mcCount = newQuestionCount;
+      else if (soleType === "true_false") tfCount = newQuestionCount;
+      else if (soleType === "matching") matchCount = newQuestionCount;
+      else fillCount = newQuestionCount;
+    } else {
+      // Multi-type integration
+      if (enabledFormats.multiple_choice) {
+        mcCount = Math.ceil(newQuestionCount * 0.5);
       }
+      const remaining = newQuestionCount - mcCount;
+      const otherActive = finalActiveTypes.filter((t) => t !== "multiple_choice");
+      const perOther = Math.floor(remaining / (otherActive.length || 1));
+
+      otherActive.forEach((t, idx) => {
+        const isLast = idx === otherActive.length - 1;
+        const count = isLast ? remaining - perOther * idx : perOther;
+        if (t === "true_false") tfCount = count;
+        if (t === "matching") matchCount = count;
+        if (t === "fill_blank") fillCount = count;
+      });
+    }
+
+    let currentQ = 1;
+
+    // Fill Multiple Choice
+    for (let i = 0; i < mcCount && currentQ <= newQuestionCount; i++) {
+      qTypesMap[currentQ] = "multiple_choice";
+      const options = ["A", "B", "C", "D"];
+      defaultKeys101[currentQ] = options[i % 4];
+      currentQ++;
+    }
+
+    // Fill True/False
+    for (let i = 0; i < tfCount && currentQ <= newQuestionCount; i++) {
+      qTypesMap[currentQ] = "true_false";
+      defaultKeys101[currentQ] = i % 2 === 0 ? "Đ" : "S";
+      currentQ++;
+    }
+
+    // Fill Matching
+    for (let i = 0; i < matchCount && currentQ <= newQuestionCount; i++) {
+      qTypesMap[currentQ] = "matching";
+      const pairs = ["1-A", "1-B", "1-C", "1-D"];
+      defaultKeys101[currentQ] = pairs[i % 4];
+      currentQ++;
+    }
+
+    // Fill Fill-in-the-blank
+    for (let i = 0; i < fillCount && currentQ <= newQuestionCount; i++) {
+      qTypesMap[currentQ] = "fill_blank";
+      defaultKeys101[currentQ] = "Đáp án " + currentQ;
+      currentQ++;
     }
 
     const created: Exam = {
@@ -62,7 +128,8 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
       questionCount: newQuestionCount,
       durationMinutes: newDuration,
       createdAt: new Date().toISOString().split("T")[0],
-      defaultQuestionType: newDefaultType,
+      defaultQuestionType: finalActiveTypes[0] || "multiple_choice",
+      enabledFormats: enabledFormats,
       questionTypes: qTypesMap,
       status: "active",
       examKeys: {
@@ -595,20 +662,118 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Dạng câu hỏi mặc định</label>
-                <select
-                  value={newDefaultType}
-                  onChange={(e) => setNewDefaultType(e.target.value as QuestionType)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-bold text-indigo-900 focus:outline-indigo-600"
-                >
-                  <option value="multiple_choice">Trắc nghiệm nhiều lựa chọn (A, B, C, D)</option>
-                  <option value="true_false">Dạng Đúng / Sai (Đúng / Sai)</option>
-                  <option value="matching">Dạng Câu hỏi Nối (Matching 1-a, 2-b...)</option>
-                  <option value="fill_blank">Dạng Câu hỏi Điền khuyết (Nhập từ / con số)</option>
-                </select>
-                <p className="text-[10px] text-slate-500 mt-1">
-                  *Sau khi tạo, thầy cô vẫn có thể tùy chỉnh lại dạng câu hỏi cho từng câu riêng biệt.
+              {/* TÍCH HỢP CẤU TRÚC DẠNG CÂU HỎI (TÙY CHỌN THEO BỘ MÔN / DẠNG BÀI KIỂM TRA) */}
+              <div className="bg-indigo-50/70 p-3 rounded-xl border border-indigo-200/80 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                    <ListChecks className="w-4 h-4 text-indigo-600" />
+                    Tích Hợp Dạng Câu Hỏi (Tùy Chọn Theo Bộ Môn)
+                  </label>
+                  <span className="text-[10px] font-bold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-full">
+                    Cấu trúc linh hoạt
+                  </span>
+                </div>
+
+                {/* Quick Presets */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10.5px] font-semibold text-slate-500">Mẫu nhanh:</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEnabledFormats({
+                        multiple_choice: true,
+                        true_false: false,
+                        matching: false,
+                        fill_blank: false,
+                      })
+                    }
+                    className="text-[10px] font-bold px-2 py-0.5 rounded bg-white text-indigo-700 border border-indigo-200 hover:bg-indigo-100"
+                  >
+                    100% Trắc nghiệm (A,B,C,D)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEnabledFormats({
+                        multiple_choice: true,
+                        true_false: true,
+                        matching: false,
+                        fill_blank: true,
+                      })
+                    }
+                    className="text-[10px] font-bold px-2 py-0.5 rounded bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-100"
+                  >
+                    Chuẩn Bộ GD&ĐT (TN + Đúng/Sai + Điền)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEnabledFormats({
+                        multiple_choice: true,
+                        true_false: true,
+                        matching: true,
+                        fill_blank: true,
+                      })
+                    }
+                    className="text-[10px] font-bold px-2 py-0.5 rounded bg-white text-amber-700 border border-amber-200 hover:bg-amber-100"
+                  >
+                    Tích hợp tất cả các dạng
+                  </button>
+                </div>
+
+                {/* Checkbox Options */}
+                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-indigo-200/60">
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-800 bg-white p-2 rounded-lg border border-slate-200 hover:border-indigo-300 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={enabledFormats.multiple_choice}
+                      onChange={(e) =>
+                        setEnabledFormats((prev) => ({ ...prev, multiple_choice: e.target.checked }))
+                      }
+                      className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+                    />
+                    <span>1. Trắc nghiệm (A, B, C, D)</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-800 bg-white p-2 rounded-lg border border-slate-200 hover:border-indigo-300 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={enabledFormats.true_false}
+                      onChange={(e) =>
+                        setEnabledFormats((prev) => ({ ...prev, true_false: e.target.checked }))
+                      }
+                      className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+                    />
+                    <span>2. Đúng / Sai (Mỗi câu Đ/S)</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-800 bg-white p-2 rounded-lg border border-slate-200 hover:border-indigo-300 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={enabledFormats.matching}
+                      onChange={(e) =>
+                        setEnabledFormats((prev) => ({ ...prev, matching: e.target.checked }))
+                      }
+                      className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+                    />
+                    <span>3. Câu hỏi Ghép nối</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 text-xs font-bold text-slate-800 bg-white p-2 rounded-lg border border-slate-200 hover:border-indigo-300 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={enabledFormats.fill_blank}
+                      onChange={(e) =>
+                        setEnabledFormats((prev) => ({ ...prev, fill_blank: e.target.checked }))
+                      }
+                      className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4"
+                    />
+                    <span>4. Trả lời ngắn / Điền khuyết</span>
+                  </label>
+                </div>
+
+                <p className="text-[10.5px] text-indigo-900 font-medium italic">
+                  *Được tự động tích hợp trực tiếp vào Phiếu trả lời trắc nghiệm OMR và Bảng đáp án khảo thí.
                 </p>
               </div>
 
