@@ -25,7 +25,9 @@ import {
   Zap,
   Globe,
   Upload,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Edit3,
+  RotateCcw
 } from "lucide-react";
 
 interface AdminPanelProps {
@@ -70,6 +72,71 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [supabaseStatusMsg, setSupabaseStatusMsg] = useState<string | null>(null);
   const [isSeeding, setIsSeeding] = useState(false);
   const [copiedSql, setCopiedSql] = useState(false);
+
+  // Admin Class Undo Stack
+  interface AdminClassUndoSnapshot {
+    classRoster: ClassRoster;
+    actionType: "delete" | "edit";
+    description: string;
+  }
+  const [adminClassUndoStack, setAdminClassUndoStack] = useState<AdminClassUndoSnapshot[]>([]);
+
+  const handleAdminEditClass = (cls: ClassRoster) => {
+    const newName = prompt("Sửa tên lớp học:", cls.className);
+    if (newName === null) return;
+    const trimmed = newName.trim();
+    if (!trimmed) {
+      alert("Tên lớp không được để trống!");
+      return;
+    }
+
+    setAdminClassUndoStack((prev) => [
+      ...prev,
+      {
+        classRoster: JSON.parse(JSON.stringify(cls)),
+        actionType: "edit",
+        description: `Sửa tên lớp ${cls.className} thành ${trimmed}`,
+      },
+    ]);
+
+    const updatedClass: ClassRoster = {
+      ...cls,
+      className: trimmed,
+      students: cls.students.map((st) => ({
+        ...st,
+        gradeClass: trimmed,
+      })),
+    };
+
+    onAddClass(updatedClass);
+  };
+
+  const handleAdminDeleteClass = (cls: ClassRoster) => {
+    if (!confirm(`Bạn có chắc chắn muốn XÓA Lớp ${cls.className} khỏi cơ sở dữ liệu không?`)) {
+      return;
+    }
+
+    setAdminClassUndoStack((prev) => [
+      ...prev,
+      {
+        classRoster: JSON.parse(JSON.stringify(cls)),
+        actionType: "delete",
+        description: `Xóa Lớp ${cls.className}`,
+      },
+    ]);
+
+    if (onDeleteClass) {
+      onDeleteClass(cls.id);
+    }
+  };
+
+  const handleAdminUndoClassAction = () => {
+    if (adminClassUndoStack.length === 0) return;
+    const lastState = adminClassUndoStack[adminClassUndoStack.length - 1];
+    setAdminClassUndoStack((prev) => prev.slice(0, prev.length - 1));
+
+    onAddClass(lastState.classRoster);
+  };
 
   const handleTestSupabase = async () => {
     setIsTestingSupabase(true);
@@ -521,6 +588,18 @@ CREATE POLICY "Allow public read write on audit_logs" ON public.audit_logs FOR A
             </div>
 
             <div className="flex items-center gap-2">
+              {adminClassUndoStack.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleAdminUndoClassAction}
+                  className="bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 font-bold px-3 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
+                  title={`Hoàn tác thao tác lớp: ${adminClassUndoStack[adminClassUndoStack.length - 1].description}`}
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-amber-700" />
+                  <span>Hoàn tác Lớp ({adminClassUndoStack.length})</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => classFileInputRef.current?.click()}
@@ -551,19 +630,25 @@ CREATE POLICY "Allow public read write on audit_logs" ON public.audit_logs FOR A
                     <span className="text-[11px] text-slate-500 font-semibold">{cls.studentCount} học sinh</span>
                   </div>
 
-                  {onDeleteClass && (
+                  <div className="flex items-center gap-1">
                     <button
-                      onClick={() => {
-                        if (confirm(`Bạn có chắc chắn muốn xóa Lớp ${cls.className} khỏi cơ sở dữ liệu không?`)) {
-                          onDeleteClass(cls.id);
-                        }
-                      }}
-                      className="text-slate-400 hover:text-red-600 p-1 rounded-lg hover:bg-red-50 transition-all cursor-pointer"
-                      title="Xóa Lớp Học"
+                      onClick={() => handleAdminEditClass(cls)}
+                      className="text-amber-600 hover:text-amber-800 p-1.5 rounded-lg hover:bg-amber-50 transition-all cursor-pointer"
+                      title="Sửa Tên Lớp"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Edit3 className="w-3.5 h-3.5" />
                     </button>
-                  )}
+
+                    {onDeleteClass && (
+                      <button
+                        onClick={() => handleAdminDeleteClass(cls)}
+                        className="text-slate-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50 transition-all cursor-pointer"
+                        title="Xóa Lớp Học"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="max-h-48 overflow-y-auto space-y-1 text-xs pt-2 border-t border-slate-100">

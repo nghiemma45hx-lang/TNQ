@@ -225,6 +225,7 @@ export default function App() {
             selectedExamId={printExamId}
             onBack={() => setActiveTab("exams")}
             onSaveClass={handleSaveClass}
+            onDeleteClass={handleDeleteClass}
           />
         )}
 

@@ -33,6 +33,7 @@ interface SheetGeneratorProps {
   selectedExamId?: string;
   onBack?: () => void;
   onSaveClass?: (newClass: ClassRoster) => void;
+  onDeleteClass?: (classId: string) => void;
 }
 
 interface LoadedStudent {
@@ -48,6 +49,7 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
   selectedExamId,
   onBack,
   onSaveClass,
+  onDeleteClass,
 }) => {
   const [currentExam, setCurrentExam] = useState<Exam>(
     exams.find((e) => e.id === selectedExamId) || exams[0]
@@ -279,6 +281,95 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
 
     setPdfSuccessMsg("Đã xóa toàn bộ danh sách. Bấm 'Hoàn tác' để phục hồi lại.");
     setTimeout(() => setPdfSuccessMsg(null), 4000);
+  };
+
+  // Selected Class & Class Action Undo Stack
+  const [selectedClassId, setSelectedClassId] = useState<string>("");
+
+  interface ClassUndoSnapshot {
+    classRoster: ClassRoster;
+    actionType: "delete" | "edit";
+    description: string;
+  }
+  const [classUndoStack, setClassUndoStack] = useState<ClassUndoSnapshot[]>([]);
+
+  const handleEditSelectedClass = () => {
+    const currentClass = classes.find((c) => c.id === selectedClassId);
+    if (!currentClass) return;
+
+    const newName = prompt("Sửa tên lớp học:", currentClass.className);
+    if (newName === null) return;
+    const trimmed = newName.trim();
+    if (!trimmed) {
+      alert("Tên lớp không được để trống!");
+      return;
+    }
+
+    setClassUndoStack((prev) => [
+      ...prev,
+      {
+        classRoster: JSON.parse(JSON.stringify(currentClass)),
+        actionType: "edit",
+        description: `Sửa tên lớp ${currentClass.className} thành ${trimmed}`,
+      },
+    ]);
+
+    const updatedClass: ClassRoster = {
+      ...currentClass,
+      className: trimmed,
+      students: currentClass.students.map((st) => ({
+        ...st,
+        gradeClass: trimmed,
+      })),
+    };
+
+    if (onSaveClass) {
+      onSaveClass(updatedClass);
+    }
+
+    setClassName(trimmed);
+    setPdfSuccessMsg(`Đã ĐỔI TÊN lớp thành "${trimmed}" & cập nhật CSDL!`);
+    setTimeout(() => setPdfSuccessMsg(null), 3500);
+  };
+
+  const handleDeleteSelectedClass = () => {
+    const currentClass = classes.find((c) => c.id === selectedClassId);
+    if (!currentClass) return;
+
+    if (!confirm(`Bạn có chắc chắn muốn XÓA Lớp ${currentClass.className} (${currentClass.studentCount} học sinh) không?`)) {
+      return;
+    }
+
+    setClassUndoStack((prev) => [
+      ...prev,
+      {
+        classRoster: JSON.parse(JSON.stringify(currentClass)),
+        actionType: "delete",
+        description: `Xóa Lớp ${currentClass.className}`,
+      },
+    ]);
+
+    if (onDeleteClass) {
+      onDeleteClass(currentClass.id);
+    }
+
+    setSelectedClassId("");
+    setPdfSuccessMsg(`Đã XÓA Lớp ${currentClass.className}. Bấm "Hoàn tác Lớp" để khôi phục lại.`);
+    setTimeout(() => setPdfSuccessMsg(null), 4500);
+  };
+
+  const handleUndoClassAction = () => {
+    if (classUndoStack.length === 0) return;
+    const lastState = classUndoStack[classUndoStack.length - 1];
+    setClassUndoStack((prev) => prev.slice(0, prev.length - 1));
+
+    if (onSaveClass) {
+      onSaveClass(lastState.classRoster);
+    }
+
+    setSelectedClassId(lastState.classRoster.id);
+    setPdfSuccessMsg(`Đã HOÀN TÁC LỚP THÀNH CÔNG: "${lastState.description}"!`);
+    setTimeout(() => setPdfSuccessMsg(null), 3500);
   };
 
   const sheetRef = useRef<HTMLDivElement>(null);
@@ -1025,26 +1116,68 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
 
             {/* If class rosters exist, allow quick choice */}
             {classes.length > 0 && (
-              <div>
-                <label className="block text-[11px] text-slate-500 font-medium my-1">
-                  Hoặc chọn từ Lớp học đã tạo:
-                </label>
-                <select
-                  onChange={(e) => {
-                    if (e.target.value) handleSelectClassRoster(e.target.value);
-                  }}
-                  defaultValue=""
-                  className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-700"
-                >
-                  <option value="" disabled>
-                    -- Chọn Lớp Học Roster --
-                  </option>
-                  {classes.map((cls) => (
-                    <option key={cls.id} value={cls.id}>
-                      Lớp {cls.className} ({cls.studentCount} học sinh)
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px] text-slate-500 font-medium my-0.5">
+                  <span>Hoặc chọn từ Lớp học đã tạo:</span>
+                  {classUndoStack.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleUndoClassAction}
+                      className="text-[10px] font-bold text-amber-800 bg-amber-100 hover:bg-amber-200 border border-amber-300 px-2 py-0.5 rounded-md flex items-center gap-1 cursor-pointer transition-all"
+                      title={`Hoàn tác lớp: ${classUndoStack[classUndoStack.length - 1].description}`}
+                    >
+                      <RotateCcw className="w-3 h-3 text-amber-700" />
+                      <span>Hoàn tác Lớp ({classUndoStack.length})</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <select
+                    value={selectedClassId}
+                    onChange={(e) => {
+                      const cid = e.target.value;
+                      setSelectedClassId(cid);
+                      if (cid) handleSelectClassRoster(cid);
+                    }}
+                    className="flex-1 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-700 min-w-0"
+                  >
+                    <option value="" disabled>
+                      -- Chọn Lớp Học Roster --
                     </option>
-                  ))}
-                </select>
+                    {classes.map((cls) => (
+                      <option key={cls.id} value={cls.id}>
+                        Lớp {cls.className} ({cls.studentCount} học sinh)
+                      </option>
+                    ))}
+                  </select>
+
+                  {/* Sửa Lớp Button */}
+                  {selectedClassId && (
+                    <button
+                      type="button"
+                      onClick={handleEditSelectedClass}
+                      className="px-2 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 flex items-center gap-1"
+                      title="Sửa tên Lớp & Thông tin"
+                    >
+                      <Edit3 className="w-3.5 h-3.5 text-amber-700" />
+                      <span className="text-[11px]">Sửa</span>
+                    </button>
+                  )}
+
+                  {/* Xóa Lớp Button */}
+                  {selectedClassId && onDeleteClass && (
+                    <button
+                      type="button"
+                      onClick={handleDeleteSelectedClass}
+                      className="px-2 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 flex items-center gap-1"
+                      title="Xóa Lớp Học này"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                      <span className="text-[11px]">Xóa</span>
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
