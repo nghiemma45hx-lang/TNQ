@@ -55,8 +55,8 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
     setPdfSuccessMsg(null);
 
     try {
-      // Small pause to ensure layout & images rendered
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      // Small pause to ensure layout & QR code rendered
+      await new Promise((resolve) => setTimeout(resolve, 200));
 
       const element = sheetRef.current;
 
@@ -66,57 +66,25 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
         allowTaint: true,
         backgroundColor: "#ffffff",
         logging: false,
-        scrollX: 0,
-        scrollY: 0,
-        windowWidth: element.scrollWidth,
-        windowHeight: element.scrollHeight,
+        windowWidth: 794,
         onclone: (clonedDoc) => {
-          // 1. Replace style elements containing oklch with new style nodes to update style.sheet
+          // Replace oklch(...) color functions in cloned document stylesheets to prevent html2canvas color parsing errors
+          // DO NOT delete rules, only replace oklch color values with valid rgb color
           const styles = Array.from(clonedDoc.querySelectorAll("style"));
           styles.forEach((style) => {
             if (style.textContent && style.textContent.includes("oklch")) {
-              const sanitized = style.textContent.replace(/oklch\([^)]+\)/g, "#1e293b");
-              const newStyle = clonedDoc.createElement("style");
-              newStyle.textContent = sanitized;
-              if (style.parentNode) {
-                style.parentNode.replaceChild(newStyle, style);
-              }
+              style.textContent = style.textContent.replace(/oklch\([^)]+\)/g, "rgb(30, 41, 59)");
             }
           });
 
-          // 2. Safely clean any residual oklch rules directly in clonedDoc.styleSheets
-          try {
-            const sheets = Array.from(clonedDoc.styleSheets);
-            sheets.forEach((sheet) => {
-              try {
-                const rules = sheet.cssRules || sheet.rules;
-                if (rules) {
-                  for (let i = rules.length - 1; i >= 0; i--) {
-                    const rule = rules[i];
-                    if (rule.cssText && rule.cssText.includes("oklch")) {
-                      try {
-                        sheet.deleteRule(i);
-                      } catch (err) {
-                        // ignore delete error
-                      }
-                    }
-                  }
-                }
-              } catch (err) {
-                // Ignore cross-origin stylesheet access errors
-              }
-            });
-          } catch (err) {
-            // ignore sheet access error
-          }
-
-          // 3. Ensure target element is properly styled for capture
           const clonedTarget = clonedDoc.getElementById("omr-sheet-printable");
           if (clonedTarget) {
             clonedTarget.style.position = "relative";
+            clonedTarget.style.width = "794px";
+            clonedTarget.style.minHeight = "1123px";
             clonedTarget.style.transform = "none";
             clonedTarget.style.boxShadow = "none";
-            clonedTarget.style.margin = "0";
+            clonedTarget.style.margin = "0 auto";
             clonedTarget.style.backgroundColor = "#ffffff";
           }
         },
