@@ -370,6 +370,78 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
     setTimeout(() => setPdfSuccessMsg(null), 4000);
   };
 
+  const [downloadReady, setDownloadReady] = useState<{
+    url: string;
+    fileName: string;
+    type: "pdf" | "docx";
+  } | null>(null);
+
+  const captureSheetToCanvas = async (element: HTMLElement): Promise<HTMLCanvasElement> => {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    return await html2canvas(element, {
+      scale: 2,
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: "#ffffff",
+      logging: false,
+      scrollX: 0,
+      scrollY: 0,
+      x: 0,
+      y: 0,
+      width: 794,
+      height: 1123,
+      windowWidth: 794,
+      windowHeight: 1123,
+      onclone: (clonedDoc) => {
+        // 1. Sanitize all <style> elements for oklch, lab, color-mix
+        const styles = Array.from(clonedDoc.querySelectorAll("style"));
+        styles.forEach((style) => {
+          if (style.textContent) {
+            style.textContent = style.textContent
+              .replace(/oklch\([^)]+\)/g, "rgb(30, 41, 59)")
+              .replace(/lab\([^)]+\)/g, "rgb(30, 41, 59)")
+              .replace(/color-mix\([^)]+\)/g, "rgb(30, 41, 59)");
+          }
+        });
+
+        // 2. Sanitize inline styles on all elements
+        const allElements = Array.from(clonedDoc.querySelectorAll("[style]"));
+        allElements.forEach((el) => {
+          const st = el.getAttribute("style");
+          if (st && (st.includes("oklch") || st.includes("lab") || st.includes("color-mix"))) {
+            el.setAttribute(
+              "style",
+              st
+                .replace(/oklch\([^)]+\)/g, "rgb(30, 41, 59)")
+                .replace(/lab\([^)]+\)/g, "rgb(30, 41, 59)")
+                .replace(/color-mix\([^)]+\)/g, "rgb(30, 41, 59)")
+            );
+          }
+        });
+
+        // 3. Isolate the target element to body root to avoid scroll offset or overflow wrapping bugs
+        const clonedTarget = clonedDoc.getElementById("omr-sheet-printable");
+        if (clonedTarget) {
+          clonedDoc.body.innerHTML = "";
+          clonedDoc.body.appendChild(clonedTarget);
+          clonedDoc.body.style.margin = "0";
+          clonedDoc.body.style.padding = "0";
+          clonedDoc.body.style.backgroundColor = "#ffffff";
+          clonedDoc.body.style.overflow = "visible";
+
+          clonedTarget.style.position = "static";
+          clonedTarget.style.width = "794px";
+          clonedTarget.style.minHeight = "1123px";
+          clonedTarget.style.transform = "none";
+          clonedTarget.style.boxShadow = "none";
+          clonedTarget.style.margin = "0 auto";
+          clonedTarget.style.backgroundColor = "#ffffff";
+        }
+      },
+    });
+  };
+
   const handlePrintBrowser = () => {
     window.print();
   };
@@ -380,37 +452,8 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
     setPdfSuccessMsg(null);
 
     try {
-      await new Promise((resolve) => setTimeout(resolve, 200));
-
       const element = sheetRef.current;
-
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: "#ffffff",
-        logging: false,
-        windowWidth: 794,
-        onclone: (clonedDoc) => {
-          const styles = Array.from(clonedDoc.querySelectorAll("style"));
-          styles.forEach((style) => {
-            if (style.textContent && style.textContent.includes("oklch")) {
-              style.textContent = style.textContent.replace(/oklch\([^)]+\)/g, "rgb(30, 41, 59)");
-            }
-          });
-
-          const clonedTarget = clonedDoc.getElementById("omr-sheet-printable");
-          if (clonedTarget) {
-            clonedTarget.style.position = "relative";
-            clonedTarget.style.width = "794px";
-            clonedTarget.style.minHeight = "1123px";
-            clonedTarget.style.transform = "none";
-            clonedTarget.style.boxShadow = "none";
-            clonedTarget.style.margin = "0 auto";
-            clonedTarget.style.backgroundColor = "#ffffff";
-          }
-        },
-      });
+      const canvas = await captureSheetToCanvas(element);
 
       const imgData = canvas.toDataURL("image/png", 1.0);
 
@@ -429,10 +472,26 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
       const fileName = `Phieu_OMR_${currentExam.subject || "BaiThi"}_SBD_${sbd || "80101"}_De_${examCode}.pdf`
         .replace(/\s+/g, "_");
 
-      pdf.save(fileName);
+      const pdfBlob = pdf.output("blob");
+      const blobUrl = URL.createObjectURL(pdfBlob);
 
-      setPdfSuccessMsg(`Đã xuất file PDF A4 thành công: ${fileName}`);
-      setTimeout(() => setPdfSuccessMsg(null), 5000);
+      // Programmatic download
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => {
+        document.body.removeChild(link);
+      }, 1000);
+
+      setDownloadReady({
+        url: blobUrl,
+        fileName,
+        type: "pdf",
+      });
+
+      setPdfSuccessMsg(`Đã tạo file PDF A4 thành công: ${fileName}`);
     } catch (err: any) {
       console.error("PDF generation error:", err);
       alert("Không thể tạo file PDF tự động. Bạn có thể bấm 'In Ngay' và chọn 'Lưu dưới dạng PDF' của trình duyệt.");
@@ -447,37 +506,8 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
     setPdfSuccessMsg(null);
 
     try {
-      await new Promise((resolve) => setTimeout(resolve, 200));
-
       const element = sheetRef.current;
-
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: "#ffffff",
-        logging: false,
-        windowWidth: 794,
-        onclone: (clonedDoc) => {
-          const styles = Array.from(clonedDoc.querySelectorAll("style"));
-          styles.forEach((style) => {
-            if (style.textContent && style.textContent.includes("oklch")) {
-              style.textContent = style.textContent.replace(/oklch\([^)]+\)/g, "rgb(30, 41, 59)");
-            }
-          });
-
-          const clonedTarget = clonedDoc.getElementById("omr-sheet-printable");
-          if (clonedTarget) {
-            clonedTarget.style.position = "relative";
-            clonedTarget.style.width = "794px";
-            clonedTarget.style.minHeight = "1123px";
-            clonedTarget.style.transform = "none";
-            clonedTarget.style.boxShadow = "none";
-            clonedTarget.style.margin = "0 auto";
-            clonedTarget.style.backgroundColor = "#ffffff";
-          }
-        },
-      });
+      const canvas = await captureSheetToCanvas(element);
 
       const base64Data = canvas.toDataURL("image/png").replace(/^data:image\/png;base64,/, "");
       const binaryString = atob(base64Data);
@@ -523,17 +553,25 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
       const fileName = `Phieu_OMR_${currentExam.subject || "BaiThi"}_SBD_${sbd || "80101"}_De_${examCode}.docx`
         .replace(/\s+/g, "_");
 
-      const url = URL.createObjectURL(blob);
+      const blobUrl = URL.createObjectURL(blob);
+
+      // Programmatic download
       const link = document.createElement("a");
-      link.href = url;
+      link.href = blobUrl;
       link.download = fileName;
       document.body.appendChild(link);
       link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      setTimeout(() => {
+        document.body.removeChild(link);
+      }, 1000);
 
-      setPdfSuccessMsg(`Đã xuất file Word (.docx) A4 thành công: ${fileName}`);
-      setTimeout(() => setPdfSuccessMsg(null), 5000);
+      setDownloadReady({
+        url: blobUrl,
+        fileName,
+        type: "docx",
+      });
+
+      setPdfSuccessMsg(`Đã tạo file Word (.docx) A4 thành công: ${fileName}`);
     } catch (err: any) {
       console.error("DOCX generation error:", err);
       alert("Không thể tạo file Word. Vui lòng thử lại hoặc sử dụng nút Xuất PDF.");
@@ -604,7 +642,43 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
         </div>
       </div>
 
-      {pdfSuccessMsg && (
+      {downloadReady && (
+        <div className="bg-emerald-50 border border-emerald-300 text-emerald-950 px-4 py-3 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs animate-fade-in">
+          <div className="flex items-center gap-2.5 text-xs font-bold">
+            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+            <div>
+              <p className="text-sm font-extrabold text-emerald-950">
+                Đã tạo thành công file {downloadReady.type === "pdf" ? "PDF A4" : "Word (.docx)"}!
+              </p>
+              <p className="text-emerald-700 font-medium font-mono text-[11px] mt-0.5">
+                {downloadReady.fileName}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <a
+              href={downloadReady.url}
+              download={downloadReady.fileName}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition-all"
+            >
+              <Download className="w-4 h-4" />
+              Bấm Vào Đây Để Tải File Về
+            </a>
+            <button
+              onClick={() => {
+                if (downloadReady?.url) URL.revokeObjectURL(downloadReady.url);
+                setDownloadReady(null);
+              }}
+              className="text-slate-400 hover:text-slate-600 text-xs font-bold px-2 py-1 cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
+      {pdfSuccessMsg && !downloadReady && (
         <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold px-4 py-3 rounded-xl flex items-center gap-2 shadow-xs">
           <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
           <span>{pdfSuccessMsg}</span>
