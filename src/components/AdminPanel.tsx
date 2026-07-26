@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
+import * as XLSX from "xlsx";
 import { UserAdmin, Exam, ClassRoster, AuditLog, GradedSheet } from "../types";
 import { checkSupabaseConnection, SUPABASE_URL } from "../lib/supabase";
 import { seedInitialDataToSupabase } from "../lib/dbService";
@@ -22,7 +23,9 @@ import {
   Copy,
   ExternalLink,
   Zap,
-  Globe
+  Globe,
+  Upload,
+  FileSpreadsheet
 } from "lucide-react";
 
 interface AdminPanelProps {
@@ -33,6 +36,7 @@ interface AdminPanelProps {
   auditLogs: AuditLog[];
   gradedSheets: GradedSheet[];
   onAddClass: (newClass: ClassRoster) => void;
+  onDeleteClass?: (classId: string) => void;
   onClearAuditLogs: () => void;
 }
 
@@ -44,6 +48,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   auditLogs,
   gradedSheets,
   onAddClass,
+  onDeleteClass,
   onClearAuditLogs,
 }) => {
   const [activeAdminTab, setActiveAdminTab] = useState<
@@ -148,6 +153,108 @@ CREATE POLICY "Allow public read write on audit_logs" ON public.audit_logs FOR A
     navigator.clipboard.writeText(sqlScriptContent);
     setCopiedSql(true);
     setTimeout(() => setCopiedSql(false), 2000);
+  };
+
+  const classFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleAdminFileUploadExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const buffer = event.target?.result as ArrayBuffer;
+        if (!buffer) return;
+
+        const workbook = XLSX.read(buffer, { type: "array" });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+
+        const rawRows: any[][] = XLSX.utils.sheet_to_json(worksheet, {
+          header: 1,
+          defval: "",
+        });
+
+        if (!rawRows || rawRows.length === 0) {
+          alert("File Excel/CSV không có dữ liệu!");
+          return;
+        }
+
+        let startRowIdx = 0;
+        let colIndex = { sbd: -1, name: -1, className: -1 };
+
+        for (let r = 0; r < Math.min(5, rawRows.length); r++) {
+          const rowStr = rawRows[r].map((cell) => String(cell).toLowerCase().trim()).join(" ");
+          if (rowStr.includes("họ") || rowStr.includes("tên") || rowStr.includes("sbd") || rowStr.includes("lớp")) {
+            startRowIdx = r + 1;
+            rawRows[r].forEach((cellVal, cIdx) => {
+              const str = String(cellVal).toLowerCase().trim();
+              if (str.includes("sbd") || str.includes("báo danh") || str.includes("mã hs")) colIndex.sbd = cIdx;
+              else if (str.includes("họ") || str.includes("tên") || str.includes("name")) colIndex.name = cIdx;
+              else if (str.includes("lớp") || str.includes("class")) colIndex.className = cIdx;
+            });
+            break;
+          }
+        }
+
+        const students: { sbd: string; name: string; gradeClass: string; gender: "Nam" | "Nữ" }[] = [];
+        let detectedClassName = "Lớp Mới";
+
+        for (let r = startRowIdx; r < rawRows.length; r++) {
+          const row = rawRows[r];
+          if (!row || row.length === 0) continue;
+
+          let stSbd = "";
+          let stName = "";
+          let stClass = "8A1";
+
+          if (colIndex.name !== -1) {
+            stName = String(row[colIndex.name] || "").trim();
+            stSbd = colIndex.sbd !== -1 ? String(row[colIndex.sbd] || "").trim() : "";
+            stClass = colIndex.className !== -1 ? String(row[colIndex.className] || "").trim() || "8A1" : "8A1";
+          } else {
+            const clean = row.map((c) => String(c).trim()).filter((c) => c.length > 0);
+            if (clean.length >= 2) {
+              stSbd = clean[0];
+              stName = clean[1];
+              stClass = clean[2] || "8A1";
+            }
+          }
+
+          if (stName) {
+            if (stClass) detectedClassName = stClass;
+            students.push({
+              sbd: stSbd || `${students.length + 101}`,
+              name: stName,
+              gradeClass: stClass,
+              gender: students.length % 2 === 0 ? "Nam" : "Nữ",
+            });
+          }
+        }
+
+        if (students.length > 0) {
+          const newClass: ClassRoster = {
+            id: `CLS-${detectedClassName}-${Date.now().toString(36)}`,
+            className: detectedClassName,
+            grade: "Khối 8",
+            academicYear: "2025-2026",
+            studentCount: students.length,
+            students: students,
+          };
+          onAddClass(newClass);
+          alert(`Đã tải & LƯU THÀNH CÔNG Lớp ${detectedClassName} gồm ${students.length} học sinh vào Cơ Sở Dữ Liệu!`);
+        } else {
+          alert("Không tìm thấy thông tin học sinh trong file Excel.");
+        }
+      } catch (err) {
+        console.error("Lỗi đọc Excel:", err);
+        alert("Lỗi khi xử lý file Excel. Vui lòng thử lại!");
+      }
+    };
+
+    reader.readAsArrayBuffer(file);
+    if (e.target) e.target.value = "";
   };
 
   const handleCreateClass = (e: React.FormEvent) => {
@@ -392,41 +499,82 @@ CREATE POLICY "Allow public read write on audit_logs" ON public.audit_logs FOR A
       {/* TAB 2: CLASSES */}
       {activeAdminTab === "classes" && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-200">
+          <input
+            ref={classFileInputRef}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            onChange={handleAdminFileUploadExcel}
+            className="hidden"
+          />
+
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200">
             <div>
-              <h3 className="text-sm font-bold text-slate-900">Danh Sách Lớp Học ({classes.length})</h3>
-              <p className="text-xs text-slate-500">Quản lý mã số báo danh (SBD) và danh sách học sinh theo từng lớp</p>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-slate-900">Danh Sách Lớp Học ({classes.length})</h3>
+                <span className="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-200">
+                  Đã Lưu CSDL Supabase
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Mọi lớp học & học sinh được lưu trữ vĩnh viễn trên cơ sở dữ liệu Supabase và LocalStorage
+              </p>
             </div>
-            <button
-              onClick={() => setShowAddClassModal(true)}
-              className="bg-indigo-600 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-2"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Thêm Lớp Mới</span>
-            </button>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => classFileInputRef.current?.click()}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>Up Excel Học Sinh</span>
+              </button>
+
+              <button
+                onClick={() => setShowAddClassModal(true)}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Thêm Lớp Mới</span>
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {classes.map((cls) => (
               <div key={cls.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
                 <div className="flex justify-between items-center">
-                  <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-lg">
-                    Lớp {cls.className} ({cls.grade})
-                  </span>
-                  <span className="text-xs text-slate-400 font-semibold">{cls.studentCount} học sinh</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-lg">
+                      Lớp {cls.className} ({cls.grade})
+                    </span>
+                    <span className="text-[11px] text-slate-500 font-semibold">{cls.studentCount} học sinh</span>
+                  </div>
+
+                  {onDeleteClass && (
+                    <button
+                      onClick={() => {
+                        if (confirm(`Bạn có chắc chắn muốn xóa Lớp ${cls.className} khỏi cơ sở dữ liệu không?`)) {
+                          onDeleteClass(cls.id);
+                        }
+                      }}
+                      className="text-slate-400 hover:text-red-600 p-1 rounded-lg hover:bg-red-50 transition-all cursor-pointer"
+                      title="Xóa Lớp Học"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
 
-                <div className="max-h-36 overflow-y-auto space-y-1 text-xs pt-2 border-t border-slate-100">
-                  {cls.students.slice(0, 5).map((st) => (
-                    <div key={st.sbd} className="flex justify-between py-1 px-2 hover:bg-slate-50 rounded">
+                <div className="max-h-48 overflow-y-auto space-y-1 text-xs pt-2 border-t border-slate-100">
+                  {cls.students.map((st, sIdx) => (
+                    <div key={st.sbd || sIdx} className="flex justify-between py-1 px-2 hover:bg-slate-50 rounded">
                       <span className="font-mono font-bold text-slate-700">{st.sbd}</span>
-                      <span className="font-semibold">{st.name}</span>
+                      <span className="font-semibold text-slate-800">{st.name}</span>
                     </div>
                   ))}
-                  {cls.students.length > 5 && (
-                    <p className="text-[10px] text-slate-400 text-center pt-1">
-                      ...và {cls.students.length - 5} học sinh khác
-                    </p>
+                  {cls.students.length === 0 && (
+                    <p className="text-slate-400 text-center py-2 text-[11px]">Chưa có danh sách học sinh</p>
                   )}
                 </div>
               </div>

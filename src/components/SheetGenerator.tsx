@@ -27,6 +27,7 @@ interface SheetGeneratorProps {
   classes?: ClassRoster[];
   selectedExamId?: string;
   onBack?: () => void;
+  onSaveClass?: (newClass: ClassRoster) => void;
 }
 
 interface LoadedStudent {
@@ -41,6 +42,7 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
   classes = [],
   selectedExamId,
   onBack,
+  onSaveClass,
 }) => {
   const [currentExam, setCurrentExam] = useState<Exam>(
     exams.find((e) => e.id === selectedExamId) || exams[0]
@@ -61,6 +63,23 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const sheetRef = useRef<HTMLDivElement>(null);
+
+  // Load active saved student list from localStorage if state is empty on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("edumark_active_sheet_students");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setStudentList(parsed);
+          setSelectedStudentIdx(0);
+          applyStudentData(parsed[0]);
+        }
+      }
+    } catch (e) {
+      console.warn("Could not load active student list:", e);
+    }
+  }, []);
 
   // Sync available exam codes when current exam changes
   useEffect(() => {
@@ -106,6 +125,11 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
     setStudentList(mapped);
     setSelectedStudentIdx(0);
     applyStudentData(mapped[0]);
+
+    try {
+      localStorage.setItem("edumark_active_sheet_students", JSON.stringify(mapped));
+    } catch (e) {}
+
     setPdfSuccessMsg(`Đã tải ${mapped.length} học sinh từ lớp ${foundClass.className}`);
     setTimeout(() => setPdfSuccessMsg(null), 4000);
   };
@@ -288,8 +312,34 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
           setStudentList(parsedStudents);
           setSelectedStudentIdx(0);
           applyStudentData(parsedStudents[0]);
+
+          // Persist to local storage for instant session recovery
+          try {
+            localStorage.setItem("edumark_active_sheet_students", JSON.stringify(parsedStudents));
+          } catch (e) {}
+
+          // Automatically group and save class roster to Supabase database
+          if (onSaveClass) {
+            const targetClassName = parsedStudents[0]?.className || className || "8A1";
+            const existingClass = classes.find((c) => c.className === targetClassName || c.id === targetClassName);
+            const updatedClassRoster: ClassRoster = {
+              id: existingClass?.id || `CLS-${targetClassName}-${Date.now().toString(36)}`,
+              className: targetClassName,
+              grade: existingClass?.grade || "Khối 8",
+              academicYear: existingClass?.academicYear || "2025-2026",
+              studentCount: parsedStudents.length,
+              students: parsedStudents.map((st) => ({
+                sbd: st.sbd,
+                name: st.name,
+                gradeClass: st.className || targetClassName,
+                gender: "Nam",
+              })),
+            };
+            onSaveClass(updatedClassRoster);
+          }
+
           setPdfSuccessMsg(
-            `Đã tải thành công danh sách ${parsedStudents.length} học sinh từ file Excel/CSV!`
+            `Đã tải & LƯU THÀNH CÔNG ${parsedStudents.length} học sinh vào CSDL cho lớp ${parsedStudents[0]?.className || className}!`
           );
           setTimeout(() => setPdfSuccessMsg(null), 5000);
         } else {

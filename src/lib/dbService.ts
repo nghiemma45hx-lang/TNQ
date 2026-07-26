@@ -156,6 +156,45 @@ export async function saveGradedSheetToSupabase(sheet: GradedSheet): Promise<boo
   }
 }
 
+// Local Storage Fallback Helpers for Classes
+export function fetchClassesFromLocalStorage(): ClassRoster[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_KEYS.CLASSES);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch (err) {
+    console.warn("Failed to read classes from localStorage:", err);
+  }
+  return [];
+}
+
+export function saveClassToLocalStorage(cls: ClassRoster): void {
+  try {
+    const existing = fetchClassesFromLocalStorage();
+    const idx = existing.findIndex((c) => c.id === cls.id || c.className === cls.className);
+    if (idx >= 0) {
+      existing[idx] = cls;
+    } else {
+      existing.unshift(cls);
+    }
+    localStorage.setItem(LOCAL_STORAGE_KEYS.CLASSES, JSON.stringify(existing));
+  } catch (err) {
+    console.warn("Failed to save class to localStorage:", err);
+  }
+}
+
+export function deleteClassFromLocalStorage(classId: string): void {
+  try {
+    const existing = fetchClassesFromLocalStorage();
+    const filtered = existing.filter((c) => c.id !== classId);
+    localStorage.setItem(LOCAL_STORAGE_KEYS.CLASSES, JSON.stringify(filtered));
+  } catch (err) {
+    console.warn("Failed to delete class from localStorage:", err);
+  }
+}
+
 // ----------------------------------------------------
 // 3. CLASSES SERVICE
 // ----------------------------------------------------
@@ -168,33 +207,49 @@ export async function fetchClassesFromSupabase(): Promise<ClassRoster[] | null> 
 
     if (error) {
       console.warn("Supabase fetch classes error:", error.message);
-      return null;
+      const local = fetchClassesFromLocalStorage();
+      return local.length > 0 ? local : null;
     }
 
-    if (!data) return [];
+    if (!data || data.length === 0) {
+      const local = fetchClassesFromLocalStorage();
+      if (local.length > 0) return local;
+      return [];
+    }
 
-    return data.map((row: any) => ({
+    const remoteClasses = data.map((row: any) => ({
       id: row.id,
       className: row.class_name || row.className,
       grade: row.grade,
       academicYear: row.academic_year || row.academicYear,
-      studentCount: row.student_count || row.studentCount,
+      studentCount: row.student_count || row.studentCount || (row.students?.length || 0),
       students: row.students || [],
     }));
+
+    // Keep localStorage in sync
+    try {
+      localStorage.setItem(LOCAL_STORAGE_KEYS.CLASSES, JSON.stringify(remoteClasses));
+    } catch (e) {}
+
+    return remoteClasses;
   } catch (err) {
     console.warn("Exception fetching classes from Supabase:", err);
-    return null;
+    const local = fetchClassesFromLocalStorage();
+    return local.length > 0 ? local : null;
   }
 }
 
 export async function saveClassToSupabase(cls: ClassRoster): Promise<boolean> {
+  // Always persist to local storage as instant offline backup
+  saveClassToLocalStorage(cls);
+
   try {
     const dbPayload = {
       id: cls.id,
       class_name: cls.className,
       grade: cls.grade,
       academic_year: cls.academicYear,
-      student_count: cls.studentCount,
+      student_count: cls.studentCount || cls.students.length,
       students: cls.students,
     };
 
@@ -207,6 +262,22 @@ export async function saveClassToSupabase(cls: ClassRoster): Promise<boolean> {
     return true;
   } catch (err) {
     console.warn("Exception saving class to Supabase:", err);
+    return false;
+  }
+}
+
+export async function deleteClassFromSupabase(classId: string): Promise<boolean> {
+  deleteClassFromLocalStorage(classId);
+
+  try {
+    const { error } = await supabase.from("classes").delete().eq("id", classId);
+    if (error) {
+      console.warn("Supabase delete class error:", error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn("Exception deleting class from Supabase:", err);
     return false;
   }
 }

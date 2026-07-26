@@ -14,6 +14,7 @@ import {
   saveGradedSheetToSupabase,
   fetchClassesFromSupabase,
   saveClassToSupabase,
+  deleteClassFromSupabase,
   fetchAuditLogsFromSupabase,
   saveAuditLogToSupabase,
   seedInitialDataToSupabase
@@ -163,9 +164,22 @@ export default function App() {
     setActiveTab("sheets");
   };
 
-  const handleAddClass = async (newClass: ClassRoster) => {
-    setClasses((prev) => [...prev, newClass]);
+  const handleSaveClass = async (newClass: ClassRoster) => {
+    setClasses((prev) => {
+      const idx = prev.findIndex((c) => c.id === newClass.id || c.className === newClass.className);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = newClass;
+        return copy;
+      }
+      return [newClass, ...prev];
+    });
     saveClassToSupabase(newClass);
+  };
+
+  const handleDeleteClass = async (classId: string) => {
+    setClasses((prev) => prev.filter((c) => c.id !== classId));
+    deleteClassFromSupabase(classId);
   };
 
   const handleClearAuditLogs = () => {
@@ -210,6 +224,7 @@ export default function App() {
             classes={classes}
             selectedExamId={printExamId}
             onBack={() => setActiveTab("exams")}
+            onSaveClass={handleSaveClass}
           />
         )}
 
@@ -246,7 +261,8 @@ export default function App() {
               classes={classes}
               auditLogs={auditLogs}
               gradedSheets={gradedSheets}
-              onAddClass={handleAddClass}
+              onAddClass={handleSaveClass}
+              onDeleteClass={handleDeleteClass}
               onClearAuditLogs={handleClearAuditLogs}
             />
           ) : (
