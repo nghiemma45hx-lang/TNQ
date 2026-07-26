@@ -207,6 +207,7 @@ export default function App() {
         {activeTab === "sheets" && (
           <SheetGenerator
             exams={exams}
+            classes={classes}
             selectedExamId={printExamId}
             onBack={() => setActiveTab("exams")}
           />
