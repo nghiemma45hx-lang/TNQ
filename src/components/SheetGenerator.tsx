@@ -14,11 +14,13 @@ import {
   UserCheck,
   RefreshCw,
   Sparkles,
+  FileText,
 } from "lucide-react";
 import QRCode from "qrcode";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import * as XLSX from "xlsx";
+import { Document, Packer, Paragraph, ImageRun, AlignmentType } from "docx";
 
 interface SheetGeneratorProps {
   exams: Exam[];
@@ -50,6 +52,7 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
   const [examCode, setExamCode] = useState("101");
   const [qrCanvasUrl, setQrCanvasUrl] = useState<string>("");
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [isExportingDocx, setIsExportingDocx] = useState(false);
   const [pdfSuccessMsg, setPdfSuccessMsg] = useState<string | null>(null);
 
   // Student list state (from uploaded CSV or selected class)
@@ -438,10 +441,111 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
     }
   };
 
+  const handleDownloadDocx = async () => {
+    if (!sheetRef.current) return;
+    setIsExportingDocx(true);
+    setPdfSuccessMsg(null);
+
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      const element = sheetRef.current;
+
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+        windowWidth: 794,
+        onclone: (clonedDoc) => {
+          const styles = Array.from(clonedDoc.querySelectorAll("style"));
+          styles.forEach((style) => {
+            if (style.textContent && style.textContent.includes("oklch")) {
+              style.textContent = style.textContent.replace(/oklch\([^)]+\)/g, "rgb(30, 41, 59)");
+            }
+          });
+
+          const clonedTarget = clonedDoc.getElementById("omr-sheet-printable");
+          if (clonedTarget) {
+            clonedTarget.style.position = "relative";
+            clonedTarget.style.width = "794px";
+            clonedTarget.style.minHeight = "1123px";
+            clonedTarget.style.transform = "none";
+            clonedTarget.style.boxShadow = "none";
+            clonedTarget.style.margin = "0 auto";
+            clonedTarget.style.backgroundColor = "#ffffff";
+          }
+        },
+      });
+
+      const base64Data = canvas.toDataURL("image/png").replace(/^data:image\/png;base64,/, "");
+      const binaryString = atob(base64Data);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      const doc = new Document({
+        sections: [
+          {
+            properties: {
+              page: {
+                margin: {
+                  top: 567, // ~1cm
+                  right: 567,
+                  bottom: 567,
+                  left: 567,
+                },
+              },
+            },
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [
+                  new ImageRun({
+                    data: bytes,
+                    type: "png",
+                    transformation: {
+                      width: 595,
+                      height: Math.round((canvas.height * 595) / canvas.width),
+                    },
+                  }),
+                ],
+              }),
+            ],
+          },
+        ],
+      });
+
+      const blob = await Packer.toBlob(doc);
+      const fileName = `Phieu_OMR_${currentExam.subject || "BaiThi"}_SBD_${sbd || "80101"}_De_${examCode}.docx`
+        .replace(/\s+/g, "_");
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      setPdfSuccessMsg(`Đã xuất file Word (.docx) A4 thành công: ${fileName}`);
+      setTimeout(() => setPdfSuccessMsg(null), 5000);
+    } catch (err: any) {
+      console.error("DOCX generation error:", err);
+      alert("Không thể tạo file Word. Vui lòng thử lại hoặc sử dụng nút Xuất PDF.");
+    } finally {
+      setIsExportingDocx(false);
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
       {/* Top Header Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs">
         <div>
           <h1 className="text-xl font-black text-slate-900 flex items-center gap-2">
             <QrCode className="w-6 h-6 text-indigo-600" />
@@ -452,20 +556,35 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2.5">
           {onBack && (
             <button
               onClick={onBack}
-              className="px-3.5 py-2 bg-slate-100 text-slate-700 font-bold rounded-xl text-xs hover:bg-slate-200 cursor-pointer"
+              className="px-3.5 py-2.5 bg-slate-100 text-slate-700 font-bold rounded-xl text-xs hover:bg-slate-200 cursor-pointer"
             >
                Quay Lại
             </button>
           )}
 
           <button
+            onClick={handleDownloadDocx}
+            disabled={isExportingDocx}
+            className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3.5 py-2.5 rounded-xl text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-75"
+            title="Xuất file phiếu trả lời trắc nghiệm chuẩn Word (.docx)"
+          >
+            {isExportingDocx ? (
+              <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+            ) : (
+              <FileText className="w-4 h-4" />
+            )}
+            <span>{isExportingDocx ? "Đang Xuất Word..." : "Xuất Word (.docx)"}</span>
+          </button>
+
+          <button
             onClick={handleDownloadPdf}
             disabled={isExportingPdf}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs shadow-md transition-all flex items-center gap-2 cursor-pointer disabled:opacity-75"
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3.5 py-2.5 rounded-xl text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-75"
+            title="Xuất file PDF trang A4 chuẩn in ấn"
           >
             {isExportingPdf ? (
               <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
@@ -477,7 +596,7 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
 
           <button
             onClick={handlePrintBrowser}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs shadow-md transition-all flex items-center gap-2 cursor-pointer"
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3.5 py-2.5 rounded-xl text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
           >
             <Printer className="w-4 h-4" />
             <span>In Ngay (Print)</span>
