@@ -759,6 +759,25 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
   const captureSheetToCanvas = async (element: HTMLElement): Promise<HTMLCanvasElement> => {
     await new Promise((resolve) => setTimeout(resolve, 200));
 
+    const sanitizeCssString = (str: string): string => {
+      if (!str || typeof str !== "string") return str;
+      if (
+        !str.includes("oklch") &&
+        !str.includes("oklab") &&
+        !str.includes("lab") &&
+        !str.includes("color-mix") &&
+        !str.includes("color(")
+      ) {
+        return str;
+      }
+      return str
+        .replace(/oklch\([^)]+\)/g, "rgb(30, 41, 59)")
+        .replace(/oklab\([^)]+\)/g, "rgb(30, 41, 59)")
+        .replace(/lab\([^)]+\)/g, "rgb(30, 41, 59)")
+        .replace(/color-mix\([^)]+\)/g, "rgb(30, 41, 59)")
+        .replace(/color\([^)]+\)/g, "rgb(30, 41, 59)");
+    };
+
     return await html2canvas(element, {
       scale: 2,
       useCORS: true,
@@ -774,33 +793,76 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
       windowWidth: 794,
       windowHeight: 1123,
       onclone: (clonedDoc) => {
-        // 1. Sanitize all <style> elements for oklch, lab, color-mix
+        // 1. Intercept getComputedStyle in cloned document window to strip oklch dynamically
+        if (clonedDoc.defaultView) {
+          const originalGetComputedStyle = clonedDoc.defaultView.getComputedStyle;
+          clonedDoc.defaultView.getComputedStyle = function (elt: Element, pseudoElt?: string | null) {
+            const style = originalGetComputedStyle.call(clonedDoc.defaultView, elt, pseudoElt);
+            return new Proxy(style, {
+              get(target, prop, receiver) {
+                if (prop === "getPropertyValue") {
+                  return (propertyName: string) => {
+                    const rawVal = target.getPropertyValue(propertyName);
+                    return sanitizeCssString(rawVal);
+                  };
+                }
+                const val = Reflect.get(target, prop, receiver);
+                if (typeof val === "string") {
+                  return sanitizeCssString(val);
+                }
+                if (typeof val === "function") {
+                  return val.bind(target);
+                }
+                return val;
+              },
+            });
+          };
+        }
+
+        // 2. Sanitize all <style> elements text content
         const styles = Array.from(clonedDoc.querySelectorAll("style"));
         styles.forEach((style) => {
           if (style.textContent) {
-            style.textContent = style.textContent
-              .replace(/oklch\([^)]+\)/g, "rgb(30, 41, 59)")
-              .replace(/lab\([^)]+\)/g, "rgb(30, 41, 59)")
-              .replace(/color-mix\([^)]+\)/g, "rgb(30, 41, 59)");
+            style.textContent = sanitizeCssString(style.textContent);
           }
         });
 
-        // 2. Sanitize inline styles on all elements
+        // 3. Sanitize all stylesheets cssRules
+        try {
+          Array.from(clonedDoc.styleSheets).forEach((sheet) => {
+            try {
+              const rules = Array.from(sheet.cssRules || []);
+              rules.forEach((rule) => {
+                if (rule.cssText && (rule.cssText.includes("oklch") || rule.cssText.includes("lab") || rule.cssText.includes("color-mix"))) {
+                  if (rule instanceof CSSStyleRule) {
+                    for (let i = 0; i < rule.style.length; i++) {
+                      const prop = rule.style[i];
+                      const val = rule.style.getPropertyValue(prop);
+                      if (val && (val.includes("oklch") || val.includes("lab") || val.includes("color-mix"))) {
+                        rule.style.setProperty(prop, sanitizeCssString(val));
+                      }
+                    }
+                  }
+                }
+              });
+            } catch (e) {
+              // Ignore cross-origin CSS rule restrictions
+            }
+          });
+        } catch (e) {
+          // Ignore stylesheet iteration errors
+        }
+
+        // 4. Sanitize inline styles on all elements
         const allElements = Array.from(clonedDoc.querySelectorAll("[style]"));
         allElements.forEach((el) => {
           const st = el.getAttribute("style");
-          if (st && (st.includes("oklch") || st.includes("lab") || st.includes("color-mix"))) {
-            el.setAttribute(
-              "style",
-              st
-                .replace(/oklch\([^)]+\)/g, "rgb(30, 41, 59)")
-                .replace(/lab\([^)]+\)/g, "rgb(30, 41, 59)")
-                .replace(/color-mix\([^)]+\)/g, "rgb(30, 41, 59)")
-            );
+          if (st && (st.includes("oklch") || st.includes("lab") || st.includes("color-mix") || st.includes("color("))) {
+            el.setAttribute("style", sanitizeCssString(st));
           }
         });
 
-        // 3. Isolate the target element to body root to avoid scroll offset or overflow wrapping bugs
+        // 5. Isolate the target element to body root to avoid scroll offset or overflow wrapping bugs
         const clonedTarget = clonedDoc.getElementById("omr-sheet-printable");
         if (clonedTarget) {
           clonedDoc.body.innerHTML = "";
