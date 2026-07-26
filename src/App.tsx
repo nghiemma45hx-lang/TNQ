@@ -27,6 +27,7 @@ import { SheetGenerator } from "./components/SheetGenerator";
 import { AnalyticsView } from "./components/AnalyticsView";
 import { AdminPanel } from "./components/AdminPanel";
 import { AdminLoginModal } from "./components/AdminLoginModal";
+import { UserAccountModal } from "./components/UserAccountModal";
 import { ScannerModal } from "./components/ScannerModal";
 
 export default function App() {
@@ -38,11 +39,12 @@ export default function App() {
 
   const [isSupabaseConnected, setIsSupabaseConnected] = useState<boolean>(true);
 
-  // Admin user state (default null until login with admin / admin)
+  // Admin user state
   const [adminUser, setAdminUser] = useState<UserAdmin | null>(null);
 
   // Modals
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
+  const [isUserAccountModalOpen, setIsUserAccountModalOpen] = useState(false);
   const [isScannerModalOpen, setIsScannerModalOpen] = useState(false);
   const [printExamId, setPrintExamId] = useState<string | undefined>(undefined);
 
@@ -194,6 +196,7 @@ export default function App() {
         setActiveTab={setActiveTab}
         adminUser={adminUser}
         onOpenAdminLogin={() => setIsAdminModalOpen(true)}
+        onOpenUserAccountModal={() => setIsUserAccountModalOpen(true)}
         onLogoutAdmin={() => setAdminUser(null)}
         onQuickScan={() => setIsScannerModalOpen(true)}
         isSupabaseConnected={isSupabaseConnected}
@@ -289,15 +292,33 @@ export default function App() {
         )}
       </main>
 
-      {/* Admin Login Modal */}
+      {/* Admin / Teacher Login & Register Modal */}
       <AdminLoginModal
         isOpen={isAdminModalOpen}
         onClose={() => setIsAdminModalOpen(false)}
         onLoginSuccess={(user) => {
           setAdminUser(user);
-          setActiveTab("admin");
+          if (user.role === "Administrator") {
+            setActiveTab("admin");
+          } else {
+            setActiveTab("exams");
+          }
         }}
       />
+
+      {/* Logged In User Account Profile & Change Password Modal */}
+      {adminUser && (
+        <UserAccountModal
+          isOpen={isUserAccountModalOpen}
+          onClose={() => setIsUserAccountModalOpen(false)}
+          currentUser={adminUser}
+          onUpdateUser={(updated) => setAdminUser(updated)}
+          onLogout={() => {
+            setAdminUser(null);
+            setIsUserAccountModalOpen(false);
+          }}
+        />
+      )}
 
       {/* Scanner OMR AI Modal */}
       {isScannerModalOpen && (

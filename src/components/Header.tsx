@@ -7,6 +7,7 @@ interface HeaderProps {
   setActiveTab: (tab: AppTab) => void;
   adminUser: UserAdmin | null;
   onOpenAdminLogin: () => void;
+  onOpenUserAccountModal?: () => void;
   onLogoutAdmin: () => void;
   onQuickScan: () => void;
   isSupabaseConnected?: boolean;
@@ -17,6 +18,7 @@ export const Header: React.FC<HeaderProps> = ({
   setActiveTab,
   adminUser,
   onOpenAdminLogin,
+  onOpenUserAccountModal,
   onLogoutAdmin,
   onQuickScan,
   isSupabaseConnected = true,
@@ -109,20 +111,31 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
 
             {adminUser ? (
-              <div className="flex items-center gap-2 bg-slate-100 border border-slate-200/80 pl-2 pr-3 py-1 rounded-xl">
-                <img
-                  src={adminUser.avatar}
-                  alt="Admin Avatar"
-                  className="w-7 h-7 rounded-lg object-cover border border-white"
-                />
-                <div className="text-left text-[11px] leading-tight">
-                  <p className="font-bold text-slate-800">{adminUser.name}</p>
-                  <p className="text-indigo-600 font-semibold text-[9px]">Quản Trị Viên</p>
+              <div className="flex items-center gap-2 bg-slate-100 border border-slate-200/80 pl-2 pr-2 py-1 rounded-2xl hover:bg-slate-200/60 transition-all cursor-pointer">
+                <div
+                  onClick={() => onOpenUserAccountModal && onOpenUserAccountModal()}
+                  className="flex items-center gap-2"
+                  title="Xem hồ sơ & Đổi mật khẩu"
+                >
+                  <img
+                    src={adminUser.avatar}
+                    alt="User Avatar"
+                    className="w-8 h-8 rounded-xl object-cover border border-indigo-200 shadow-xs"
+                  />
+                  <div className="text-left text-[11px] leading-tight pr-1">
+                    <p className="font-bold text-slate-800 line-clamp-1">{adminUser.name}</p>
+                    <div className="flex items-center gap-1">
+                      <span className="text-indigo-700 font-bold text-[9px] bg-indigo-50 border border-indigo-200/80 px-1.5 rounded">
+                        Môn: {adminUser.subject || "Khác"}
+                      </span>
+                    </div>
+                  </div>
                 </div>
+
                 <button
                   onClick={onLogoutAdmin}
-                  title="Đăng xuất Admin"
-                  className="ml-1 text-slate-400 hover:text-red-600 p-1 rounded hover:bg-white transition-colors"
+                  title="Đăng xuất"
+                  className="text-slate-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-white transition-colors cursor-pointer"
                 >
                   <LogOut className="w-3.5 h-3.5" />
                 </button>
@@ -130,10 +143,10 @@ export const Header: React.FC<HeaderProps> = ({
             ) : (
               <button
                 onClick={onOpenAdminLogin}
-                className="bg-slate-900 hover:bg-slate-800 text-white px-3.5 py-2 rounded-xl text-xs font-semibold transition-all shadow-sm flex items-center gap-1.5"
+                className="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-500/20 flex items-center gap-1.5 cursor-pointer active:scale-95"
               >
-                <Shield className="w-3.5 h-3.5 text-amber-400" />
-                <span>Đăng Nhập Admin</span>
+                <Shield className="w-3.5 h-3.5 text-amber-300" />
+                <span>Đăng Nhập / Đăng Ký</span>
               </button>
             )}
           </div>
@@ -182,11 +195,17 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="pt-2 border-t border-slate-100">
             {adminUser ? (
               <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
-                <div className="flex items-center gap-2">
-                  <img src={adminUser.avatar} className="w-8 h-8 rounded-lg" />
+                <div
+                  onClick={() => {
+                    if (onOpenUserAccountModal) onOpenUserAccountModal();
+                    setMobileMenuOpen(false);
+                  }}
+                  className="flex items-center gap-2 cursor-pointer"
+                >
+                  <img src={adminUser.avatar} className="w-8 h-8 rounded-lg object-cover" />
                   <div>
-                    <p className="text-xs font-bold">{adminUser.name}</p>
-                    <p className="text-[10px] text-indigo-600">Đã đăng nhập Admin</p>
+                    <p className="text-xs font-bold text-slate-800">{adminUser.name}</p>
+                    <p className="text-[10px] text-indigo-700 font-bold">Môn: {adminUser.subject || "Khác"}</p>
                   </div>
                 </div>
                 <button
@@ -194,7 +213,7 @@ export const Header: React.FC<HeaderProps> = ({
                     onLogoutAdmin();
                     setMobileMenuOpen(false);
                   }}
-                  className="text-xs text-red-600 font-semibold px-2 py-1 rounded bg-red-50"
+                  className="text-xs text-red-600 font-semibold px-2.5 py-1 rounded-lg bg-red-50 border border-red-200"
                 >
                   Đăng xuất
                 </button>
@@ -205,10 +224,10 @@ export const Header: React.FC<HeaderProps> = ({
                   onOpenAdminLogin();
                   setMobileMenuOpen(false);
                 }}
-                className="w-full bg-slate-900 text-white py-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-2"
+                className="w-full bg-indigo-600 text-white py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md"
               >
-                <Shield className="w-4 h-4 text-amber-400" />
-                <span>Đăng Nhập Quản Trị (admin / admin)</span>
+                <Shield className="w-4 h-4 text-amber-300" />
+                <span>Đăng Nhập / Đăng Ký Tài Khoản</span>
               </button>
             )}
           </div>

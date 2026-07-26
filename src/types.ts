@@ -66,13 +66,20 @@ export interface ClassRoster {
 }
 
 export interface UserAdmin {
+  id?: string;
   username: string;
-  role: string;
+  password?: string;
+  role: string; // "Administrator" | "Giáo viên"
   name: string;
+  subject?: string; // Bộ môn giảng dạy (e.g., "Ngữ văn", "Toán học")
+  grade?: string; // Khối giảng dạy (e.g., "Khối 8")
   email: string;
   avatar: string;
   lastLogin?: string;
+  createdAt?: string;
 }
+
+export type UserAccount = UserAdmin;
 
 export interface AuditLog {
   id: string;

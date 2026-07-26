@@ -38,10 +38,72 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-// Admin Login Route
+// Server-side user accounts store
+const serverUsers = [
+  {
+    id: "USER-ADMIN",
+    username: "admin",
+    password: "admin",
+    name: "Quản trị viên EduMark",
+    role: "Administrator",
+    subject: "Quản trị Hệ thống",
+    grade: "Tất cả các khối",
+    email: "admin@edumark.edu.vn",
+    avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80",
+    createdAt: "2026-01-01 08:00:00",
+  },
+  {
+    id: "USER-TEACHER-1",
+    username: "teacher_van",
+    password: "123456",
+    name: "Cô Nguyễn Thị Mai",
+    role: "Giáo viên",
+    subject: "Ngữ văn",
+    grade: "Khối 8",
+    email: "mainguyen@edumark.edu.vn",
+    avatar: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=100&auto=format&fit=crop&q=80",
+    createdAt: "2026-02-10 09:30:00",
+  },
+  {
+    id: "USER-TEACHER-2",
+    username: "teacher_toan",
+    password: "123456",
+    name: "Thầy Trần Hoàng Nam",
+    role: "Giáo viên",
+    subject: "Toán học",
+    grade: "Khối 9",
+    email: "namtran@edumark.edu.vn",
+    avatar: "https://images.unsplash.com/photo-1560250097-0b93528c311a?w=100&auto=format&fit=crop&q=80",
+    createdAt: "2026-02-15 14:20:00",
+  }
+];
+
+// Admin & General Login Route
 app.post("/api/admin/login", (req, res) => {
   const { username, password } = req.body;
-  if (username === "admin" && password === "admin") {
+  const cleanUser = (username || "").trim().toLowerCase();
+  const cleanPass = (password || "").trim();
+
+  const found = serverUsers.find(
+    (u) => u.username.toLowerCase() === cleanUser && u.password === cleanPass
+  );
+
+  if (found) {
+    return res.json({
+      success: true,
+      token: "token-edumark-" + Date.now(),
+      user: {
+        id: found.id,
+        username: found.username,
+        role: found.role,
+        name: found.name,
+        subject: found.subject,
+        grade: found.grade,
+        email: found.email,
+        avatar: found.avatar,
+      },
+    });
+  } else if (cleanUser === "admin" && cleanPass === "admin") {
     return res.json({
       success: true,
       token: "admin-token-edumark-" + Date.now(),
@@ -49,6 +111,7 @@ app.post("/api/admin/login", (req, res) => {
         username: "admin",
         role: "Administrator",
         name: "Quản trị viên EduMark",
+        subject: "Quản trị Hệ thống",
         email: "admin@edumark.edu.vn",
         avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80",
       },
@@ -56,9 +119,78 @@ app.post("/api/admin/login", (req, res) => {
   } else {
     return res.status(401).json({
       success: false,
-      message: "Tên đăng nhập hoặc mật khẩu không chính xác! (Gợi ý: admin / admin)",
+      message: "Tên đăng nhập hoặc mật khẩu không chính xác!",
     });
   }
+});
+
+// Register New Account Route
+app.post("/api/auth/register", (req, res) => {
+  const { username, password, name, subject, grade, email } = req.body;
+  const cleanUser = (username || "").trim().toLowerCase();
+  const cleanPass = (password || "").trim();
+
+  if (!cleanUser || cleanUser.length < 3) {
+    return res.status(400).json({ success: false, message: "Tên đăng nhập tối thiểu 3 ký tự!" });
+  }
+  if (!cleanPass || cleanPass.length < 6) {
+    return res.status(400).json({ success: false, message: "Mật khẩu tối thiểu 6 ký tự!" });
+  }
+  if (!name || !name.trim()) {
+    return res.status(400).json({ success: false, message: "Vui lòng nhập Họ tên giáo viên!" });
+  }
+  if (!subject || !subject.trim()) {
+    return res.status(400).json({ success: false, message: "Vui lòng chọn Bộ môn!" });
+  }
+
+  const exists = serverUsers.some((u) => u.username.toLowerCase() === cleanUser);
+  if (exists) {
+    return res.status(400).json({ success: false, message: `Tài khoản '${cleanUser}' đã tồn tại!` });
+  }
+
+  const newUser = {
+    id: "USER-" + Date.now().toString(36).toUpperCase(),
+    username: cleanUser,
+    password: cleanPass,
+    name: name.trim(),
+    role: "Giáo viên",
+    subject: subject.trim(),
+    grade: (grade || "Khối 8").trim(),
+    email: (email || `${cleanUser}@edumark.edu.vn`).trim(),
+    avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80",
+    createdAt: new Date().toISOString(),
+  };
+
+  serverUsers.push(newUser);
+
+  return res.json({
+    success: true,
+    message: `Đăng ký thành công tài khoản giáo viên môn ${newUser.subject}!`,
+    user: newUser,
+    token: "token-edumark-" + Date.now(),
+  });
+});
+
+// Change Password Route
+app.post("/api/auth/change-password", (req, res) => {
+  const { username, oldPassword, newPassword } = req.body;
+  const cleanUser = (username || "").trim().toLowerCase();
+  const userIdx = serverUsers.findIndex((u) => u.username.toLowerCase() === cleanUser);
+
+  if (userIdx === -1) {
+    return res.status(404).json({ success: false, message: "Không tìm thấy người dùng!" });
+  }
+
+  if (serverUsers[userIdx].password !== (oldPassword || "").trim()) {
+    return res.status(400).json({ success: false, message: "Mật khẩu cũ không chính xác!" });
+  }
+
+  if (!newPassword || newPassword.trim().length < 6) {
+    return res.status(400).json({ success: false, message: "Mật khẩu mới tối thiểu 6 ký tự!" });
+  }
+
+  serverUsers[userIdx].password = newPassword.trim();
+  return res.json({ success: true, message: "Đổi mật khẩu thành công!" });
 });
 
 // AI Grade Sheet Endpoint (using Gemini Vision)
