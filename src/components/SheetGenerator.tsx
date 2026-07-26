@@ -70,6 +70,15 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
         scrollY: 0,
         windowWidth: element.scrollWidth,
         windowHeight: element.scrollHeight,
+        onclone: (clonedDoc) => {
+          // Replace oklch(...) color functions in cloned document stylesheets to prevent html2canvas color parsing errors
+          const styles = clonedDoc.querySelectorAll("style");
+          styles.forEach((style) => {
+            if (style.innerHTML && style.innerHTML.includes("oklch")) {
+              style.innerHTML = style.innerHTML.replace(/oklch\([^)]+\)/g, "#1e293b");
+            }
+          });
+        },
       });
 
       const imgData = canvas.toDataURL("image/png", 1.0);
