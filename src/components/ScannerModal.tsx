@@ -160,16 +160,16 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
         // REAL AI scan / Upload / Camera mode
         studentName = (rawAiData.studentName && rawAiData.studentName !== "null")
           ? rawAiData.studentName
-          : "Dư Hoài Anh";
+          : "Học sinh (Chưa đặt tên)";
         sbd = (rawAiData.sbd && rawAiData.sbd !== "null")
           ? rawAiData.sbd
-          : "80101";
+          : "SBD-" + Math.floor(1000 + Math.random() * 9000);
         
-        // Match exam code from AI if present in current exam, or default to closest
+        // Match exam code from AI if present in current exam, or default to activeCode
         if (rawAiData.examCode && selectedExam.examKeys[rawAiData.examCode]) {
           examCode = rawAiData.examCode;
-        } else if (selectedExam.examKeys["102"]) {
-          examCode = "102";
+        } else {
+          examCode = activeCode;
         }
       }
 
@@ -197,7 +197,7 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
         } else {
           // Upload / Camera mode
           if (!markedAns || markedAns === "null") {
-            markedAns = correctAns;
+            markedAns = "NONE";
           }
         }
 
