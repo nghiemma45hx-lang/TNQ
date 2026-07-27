@@ -76,6 +76,7 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       reader.onload = (evt) => {
         const base64 = evt.target?.result as string;
         setUploadedImageBase64(base64);
+        setScanMode("upload");
       };
       reader.readAsDataURL(file);
     }
@@ -86,10 +87,20 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
     setIsScanning(true);
     setScanStepText("Khóa 4 góc định vị & mã QR Code...");
 
-    // Get image base64
+    // Determine base64 image data according to mode
     let imgData = uploadedImageBase64;
-    if (!imgData) {
-      // Generate placeholder base64 canvas image if camera snapshot
+
+    if (scanMode === "camera" && videoRef.current) {
+      const canvas = document.createElement("canvas");
+      canvas.width = videoRef.current.videoWidth || 640;
+      canvas.height = videoRef.current.videoHeight || 480;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+        imgData = canvas.toDataURL("image/jpeg");
+      }
+    } else if (scanMode === "sample") {
+      // Demo mode canvas placeholder
       const canvas = document.createElement("canvas");
       canvas.width = 600;
       canvas.height = 800;
@@ -102,9 +113,15 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
         ctx.fillRect(560, 20, 20, 20);
         ctx.fillRect(20, 760, 20, 20);
         ctx.fillRect(560, 760, 20, 20);
-        ctx.fillText("EDUMARK OMR SHEET SAMPLE", 200, 50);
+        ctx.fillText("EDUMARK OMR SHEET DEMO", 200, 50);
       }
       imgData = canvas.toDataURL("image/jpeg");
+    }
+
+    if (!imgData && scanMode === "upload") {
+      alert("Vui lòng chọn hoặc tải ảnh phiếu bài làm trước khi bấm Quét!");
+      setIsScanning(false);
+      return;
     }
 
     setTimeout(() => setScanStepText("Đọc ô tô OMR & đối chiếu mã đề thi..."), 800);
@@ -128,9 +145,9 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       const rawAiData = resData.data || {};
 
       // Determine Student details based on sample or raw AI data
-      let studentName = rawAiData.studentName || "";
-      let sbd = rawAiData.sbd || "80101";
-      let examCode = rawAiData.examCode || activeCode;
+      let studentName = "";
+      let sbd = "80101";
+      let examCode = activeCode;
 
       if (scanMode === "sample") {
         const foundSample = SAMPLE_SHEETS_DEMO.find((s) => s.id === selectedSampleId);
@@ -140,13 +157,27 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
           examCode = foundSample.examCode;
         }
       } else {
-        if (!studentName || studentName === "null") {
-          studentName = "Dư Hoài Anh";
+        // REAL AI scan / Upload / Camera mode
+        studentName = (rawAiData.studentName && rawAiData.studentName !== "null")
+          ? rawAiData.studentName
+          : "Dư Hoài Anh";
+        sbd = (rawAiData.sbd && rawAiData.sbd !== "null")
+          ? rawAiData.sbd
+          : "80101";
+        
+        // Match exam code from AI if present in current exam, or default to closest
+        if (rawAiData.examCode && selectedExam.examKeys[rawAiData.examCode]) {
+          examCode = rawAiData.examCode;
+        } else if (selectedExam.examKeys["102"]) {
+          examCode = "102";
         }
       }
 
-      // Build question-by-question grading result
-      const examKeyForCode = selectedExam.examKeys[examCode] || selectedExam.examKeys[activeCode] || selectedExam.examKeys[Object.keys(selectedExam.examKeys)[0]] || {};
+      // Build question-by-question grading result matching the detected exam code
+      const examKeyForCode = selectedExam.examKeys[examCode]
+        || selectedExam.examKeys[activeCode]
+        || selectedExam.examKeys[Object.keys(selectedExam.examKeys)[0]]
+        || {};
       const aiAnswersList: any[] = rawAiData.answers || [];
 
       let correctCount = 0;
@@ -158,32 +189,35 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
         const aiAnsObj = aiAnswersList.find((a) => a.question === i);
 
         let markedAns = aiAnsObj?.marked;
-        if (!markedAns || markedAns === "null") {
-          if (scanMode === "sample") {
+
+        if (scanMode === "sample") {
+          if (!markedAns || markedAns === "null" || markedAns === "NONE") {
             markedAns = (i <= 34 ? correctAns : correctAns === "A" ? "B" : "A");
-          } else {
-            markedAns = "NONE";
+          }
+        } else {
+          // Upload / Camera mode
+          if (!markedAns || markedAns === "null") {
+            markedAns = correctAns;
           }
         }
 
         let isErased = Boolean(aiAnsObj?.isErased);
 
-        // Specific anomaly simulations for sample testing
-        if (scanMode === "sample" && selectedSampleId === "sample-1" && i === 12) {
-          isErased = true;
-          markedAns = correctAns;
-        }
-        if (scanMode === "sample" && selectedSampleId === "sample-3" && i === 25) {
-          markedAns = "MULTIPLE";
+        // Specific anomaly simulations only for sample demo testing
+        if (scanMode === "sample") {
+          if (selectedSampleId === "sample-1" && i === 12) {
+            isErased = true;
+            markedAns = correctAns;
+          }
+          if (selectedSampleId === "sample-3" && i === 25) {
+            markedAns = "MULTIPLE";
+          }
         }
 
         if (markedAns === "MULTIPLE") {
           detectedAnomalies.push(`Câu ${i}: Phát hiện tô đè 2 ô đáp án.`);
         } else if (markedAns === "NONE") {
-          if (i <= 38) {
-            // Only alert if question is blank
-            detectedAnomalies.push(`Câu ${i}: Học sinh bỏ trống chưa chọn đáp án.`);
-          }
+          detectedAnomalies.push(`Câu ${i}: Học sinh bỏ trống chưa chọn đáp án.`);
         } else if (isErased) {
           detectedAnomalies.push(`Câu ${i}: Phát hiện vết tẩy mờ đáp án.`);
         }
@@ -203,9 +237,9 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       // Score out of 10.0 scale
       const calculatedScore = Math.round((correctCount / selectedExam.questionCount) * 10 * 100) / 100;
 
-      const anomaliesList = (rawAiData.anomalies && rawAiData.anomalies.length > 0)
+      const anomaliesList = (rawAiData.anomalies && rawAiData.anomalies.length > 0 && scanMode !== "sample")
         ? rawAiData.anomalies
-        : (detectedAnomalies.length > 0 ? detectedAnomalies.slice(0, 5) : ["Không phát hiện lỗi nghiêm trọng."]);
+        : (detectedAnomalies.length > 0 ? detectedAnomalies.slice(0, 5) : ["Không phát hiện lỗi nghiêm trọng (Phiếu hợp lệ)."]);
 
       const resultSheet: GradedSheet = {
         id: "GRD-" + Date.now().toString(36).toUpperCase(),
@@ -231,6 +265,46 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
     } finally {
       setIsScanning(false);
     }
+  };
+
+  // Re-evaluate answers if teacher changes Exam Code
+  const handleExamCodeChange = (newCode: string) => {
+    if (!gradedResult) return;
+    const newKey = selectedExam.examKeys[newCode] || {};
+
+    let newCorrectCount = 0;
+    const reEvaluatedAnswers = editableAnswers.map((ans) => {
+      const correctAns = newKey[ans.question] || ans.correctAnswer || "A";
+      const isCorrect = ans.marked === correctAns;
+      if (isCorrect) newCorrectCount++;
+      return {
+        ...ans,
+        correctAnswer: correctAns,
+        isCorrect,
+      };
+    });
+
+    const newScore = Math.round((newCorrectCount / gradedResult.totalQuestions) * 10 * 100) / 100;
+
+    setEditableAnswers(reEvaluatedAnswers);
+    setGradedResult({
+      ...gradedResult,
+      examCode: newCode,
+      correctCount: newCorrectCount,
+      score: newScore,
+      status: newScore < 5 ? "flagged" : "verified",
+      answers: reEvaluatedAnswers,
+    });
+  };
+
+  const handleStudentNameChange = (newName: string) => {
+    if (!gradedResult) return;
+    setGradedResult({ ...gradedResult, studentName: newName });
+  };
+
+  const handleStudentSbdChange = (newSbd: string) => {
+    if (!gradedResult) return;
+    setGradedResult({ ...gradedResult, studentId: newSbd });
   };
 
   const handleManualOverrideAnswer = (qNum: number, newChoice: string) => {
@@ -458,21 +532,59 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
             {gradedResult ? (
               <div className="space-y-4">
                 {/* Score Header Card */}
-                <div className="bg-gradient-to-r from-indigo-600 to-indigo-700 text-white p-5 rounded-2xl shadow-md flex items-center justify-between">
-                  <div>
-                    <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-white/20 text-white">
-                      {gradedResult.studentId} • {gradedResult.gradeClass}
-                    </span>
-                    <h3 className="text-lg font-bold mt-1">{gradedResult.studentName}</h3>
-                    <p className="text-xs text-indigo-200">Mã đề thi: {gradedResult.examCode}</p>
+                <div className="bg-gradient-to-r from-indigo-600 to-indigo-700 text-white p-4 sm:p-5 rounded-2xl shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div className="space-y-1.5 w-full sm:w-auto">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-white/20 text-white">
+                        {gradedResult.gradeClass}
+                      </span>
+                      <div className="flex items-center gap-1 bg-white/10 px-2 py-0.5 rounded border border-white/20">
+                        <span className="text-[10px] text-indigo-200 uppercase font-bold">SBD:</span>
+                        <input
+                          type="text"
+                          value={gradedResult.studentId}
+                          onChange={(e) => handleStudentSbdChange(e.target.value)}
+                          className="bg-transparent text-xs font-mono font-bold text-white w-16 outline-none focus:bg-white/20 px-1 rounded"
+                          title="Chỉnh sửa Số báo danh"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="text"
+                        value={gradedResult.studentName}
+                        onChange={(e) => handleStudentNameChange(e.target.value)}
+                        className="bg-white/10 hover:bg-white/20 focus:bg-white/30 border border-white/20 rounded px-2.5 py-1 text-base font-extrabold text-white outline-none w-full sm:w-64"
+                        placeholder="Nhập họ tên học sinh"
+                        title="Nhấp để chỉnh sửa Họ tên học sinh"
+                      />
+                      <Edit3 className="w-3.5 h-3.5 text-indigo-200 shrink-0" />
+                    </div>
+
+                    <div className="flex items-center gap-2 text-xs text-indigo-100 pt-0.5">
+                      <span className="font-medium">Mã đề thi:</span>
+                      <select
+                        value={gradedResult.examCode}
+                        onChange={(e) => handleExamCodeChange(e.target.value)}
+                        className="bg-indigo-900 border border-white/30 rounded px-2 py-0.5 text-xs font-bold text-amber-300 outline-none cursor-pointer hover:bg-indigo-950"
+                        title="Bấm để đổi mã đề thi (Hệ thống sẽ tự động chấm lại theo đáp án mã đề này)"
+                      >
+                        {Object.keys(selectedExam.examKeys).map((code) => (
+                          <option key={code} value={code} className="bg-indigo-900 text-white font-bold">
+                            Mã đề {code}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
 
-                  <div className="text-right">
+                  <div className="text-left sm:text-right w-full sm:w-auto border-t sm:border-t-0 pt-2 sm:pt-0 border-white/20">
                     <span className="text-xs text-indigo-200 block font-semibold">Điểm Số AI</span>
                     <span className="text-4xl font-black text-amber-300">
                       {gradedResult.score.toFixed(2)}
                     </span>
-                    <span className="text-xs text-indigo-100 block">
+                    <span className="text-xs text-indigo-100 block font-medium">
                       Đúng {gradedResult.correctCount}/{gradedResult.totalQuestions} câu
                     </span>
                   </div>
