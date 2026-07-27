@@ -1911,6 +1911,9 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
                       <option value={40}>40 Dòng kẻ</option>
                       <option value={45}>45 Dòng kẻ</option>
                       <option value={50}>50 Dòng kẻ</option>
+                      <option value={55}>55 Dòng kẻ</option>
+                      <option value={60}>60 Dòng kẻ</option>
+                      <option value={65}>65 Dòng kẻ</option>
                     </select>
                   </div>
 
