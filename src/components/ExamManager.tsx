@@ -282,48 +282,115 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
     triggerSaveToast(`Đã tạo ngẫu nhiên đáp án cho mã đề ${activeCode}`);
   };
 
-  const handlePasteKeyImport = () => {
-    if (!selectedExam || !pasteKeyText.trim()) return;
+  const parseAnswerString = (text: string, totalQuestions: number): Record<number, "A" | "B" | "C" | "D"> => {
+    const result: Record<number, "A" | "B" | "C" | "D"> = {};
+    if (!text || !text.trim()) return result;
 
-    // Parse strings like "1A 2B 3C" or "A B C D A B C D" or "ABCDABCD"
-    const cleaned = pasteKeyText.replace(/[\n\r,;]/g, " ").trim();
-    const parts = cleaned.split(/\s+/);
-    const newKeys: Record<number, "A" | "B" | "C" | "D"> = {};
+    const cleaned = text.trim();
 
-    let qCount = 0;
-    parts.forEach((p) => {
-      const matchWithNum = p.match(/^(\d+)\s*([ABCDabcd])$/);
-      if (matchWithNum) {
-        const qNum = parseInt(matchWithNum[1], 10);
-        const ans = matchWithNum[2].toUpperCase() as "A" | "B" | "C" | "D";
-        if (qNum <= selectedExam.questionCount) {
-          newKeys[qNum] = ans;
+    // Try matching explicitly numbered expressions like "1A", "1.A", "1: A", "1-A", "1) A", "Câu 1: A", "C1. A"
+    const numberedRegex = /(?:câu|c)?\s*(\d+)\s*[:.\-\)]*\s*([ABCDabcd])/gi;
+    let match;
+    let foundNumbered = false;
+
+    while ((match = numberedRegex.exec(cleaned)) !== null) {
+      const qNum = parseInt(match[1], 10);
+      const ans = match[2].toUpperCase() as "A" | "B" | "C" | "D";
+      if (qNum >= 1 && qNum <= totalQuestions) {
+        result[qNum] = ans;
+        foundNumbered = true;
+      }
+    }
+
+    if (foundNumbered && Object.keys(result).length > 0) {
+      return result;
+    }
+
+    // Fallback: tokenize text and parse tokens or raw letters
+    const parts = cleaned.split(/[\s,;:\n\r]+/);
+    let qIndex = 1;
+
+    for (const part of parts) {
+      if (!part) continue;
+      const pairMatch = part.match(/^(\d+)[.\-:]*([ABCDabcd])$/i);
+      if (pairMatch) {
+        const qNum = parseInt(pairMatch[1], 10);
+        const ans = pairMatch[2].toUpperCase() as "A" | "B" | "C" | "D";
+        if (qNum >= 1 && qNum <= totalQuestions) {
+          result[qNum] = ans;
         }
-      } else {
-        const letters = p.replace(/[^ABCDabcd]/g, "").toUpperCase();
-        for (let i = 0; i < letters.length; i++) {
-          qCount++;
-          if (qCount <= selectedExam.questionCount) {
-            newKeys[qCount] = letters[i] as "A" | "B" | "C" | "D";
-          }
+        continue;
+      }
+
+      const letters = part.replace(/[^ABCDabcd]/g, "").toUpperCase();
+      for (let i = 0; i < letters.length; i++) {
+        if (qIndex <= totalQuestions) {
+          result[qIndex] = letters[i] as "A" | "B" | "C" | "D";
+          qIndex++;
         }
       }
+    }
+
+    return result;
+  };
+
+  const handleOpenPasteModal = () => {
+    if (!selectedExam) return;
+    const currentKeys = selectedExam.examKeys[activeCode] || {};
+    let defaultStr = "";
+    for (let i = 1; i <= selectedExam.questionCount; i++) {
+      const ans = currentKeys[i] || "A";
+      defaultStr += `${i}${ans} `;
+    }
+    setPasteKeyText(defaultStr.trim());
+    setShowPasteModal(true);
+  };
+
+  const convertTextToFormat = (formatType: "numbered" | "dotted" | "continuous") => {
+    if (!selectedExam) return;
+    const parsed = parseAnswerString(pasteKeyText, selectedExam.questionCount);
+    const currentKeys = selectedExam.examKeys[activeCode] || {};
+
+    let formatted = "";
+    for (let i = 1; i <= selectedExam.questionCount; i++) {
+      const ans = parsed[i] || currentKeys[i] || "A";
+      if (formatType === "numbered") {
+        formatted += `${i}${ans} `;
+      } else if (formatType === "dotted") {
+        formatted += `${i}.${ans} `;
+      } else if (formatType === "continuous") {
+        formatted += ans;
+      }
+    }
+    setPasteKeyText(formatted.trim());
+  };
+
+  const handlePasteKeyImport = () => {
+    if (!selectedExam) return;
+    const parsed = parseAnswerString(pasteKeyText, selectedExam.questionCount);
+
+    if (Object.keys(parsed).length === 0) {
+      alert("Không tìm thấy đáp án hợp lệ (A, B, C, D) trong chuỗi nhập!");
+      return;
+    }
+
+    const updatedCodeKeys = { ...(selectedExam.examKeys[activeCode] || {}) };
+    Object.entries(parsed).forEach(([q, ans]) => {
+      updatedCodeKeys[parseInt(q, 10)] = ans;
     });
 
-    if (Object.keys(newKeys).length > 0) {
-      const updatedExam: Exam = {
-        ...selectedExam,
-        examKeys: {
-          ...selectedExam.examKeys,
-          [activeCode]: { ...selectedExam.examKeys[activeCode], ...newKeys },
-        },
-      };
-      setSelectedExam(updatedExam);
-      onSaveExam(updatedExam);
-      setShowPasteModal(false);
-      setPasteKeyText("");
-      triggerSaveToast(`Đã cập nhật đáp án dán cho mã đề ${activeCode}!`);
-    }
+    const updatedExam: Exam = {
+      ...selectedExam,
+      examKeys: {
+        ...selectedExam.examKeys,
+        [activeCode]: updatedCodeKeys,
+      },
+    };
+
+    setSelectedExam(updatedExam);
+    onSaveExam(updatedExam);
+    setShowPasteModal(false);
+    triggerSaveToast(`Đã cập nhật ${Object.keys(parsed).length} câu cho mã đề ${activeCode}!`);
   };
 
   return (
@@ -495,11 +562,12 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
                 </div>
 
                 <button
-                  onClick={() => setShowPasteModal(true)}
+                  onClick={handleOpenPasteModal}
                   className="text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-2xs flex items-center gap-1.5 shrink-0"
+                  title="Chỉnh sửa hoặc dán toàn bộ chuỗi đáp án cho mã đề"
                 >
-                  <Copy className="w-3.5 h-3.5" />
-                  <span>Dán Chuỗi Đáp Án</span>
+                  <Type className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Sửa / Dán Chuỗi Đáp Án</span>
                 </button>
               </div>
 
@@ -806,40 +874,138 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
         </div>
       )}
 
-      {/* Modal: Paste Key Text */}
-      {showPasteModal && (
-        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 relative border border-slate-100">
-            <h3 className="text-lg font-bold text-slate-900 mb-2">Dán Nhanh Chuỗi Đáp Án Mã Đề {activeCode}</h3>
-            <p className="text-xs text-slate-500 mb-3">
-              Nhập dạng: <code className="bg-slate-100 px-1 rounded text-indigo-600">ABCDABCD...</code> hoặc <code className="bg-slate-100 px-1 rounded text-indigo-600">1A 2B 3C 4D...</code>
-            </p>
+      {/* Modal: Edit & Paste Answer String */}
+      {showPasteModal && selectedExam && (() => {
+        const parsedPreview = parseAnswerString(pasteKeyText, selectedExam.questionCount);
+        const parsedCount = Object.keys(parsedPreview).length;
+        const totalReq = selectedExam.questionCount;
+        const isComplete = parsedCount === totalReq;
 
-            <textarea
-              rows={5}
-              value={pasteKeyText}
-              onChange={(e) => setPasteKeyText(e.target.value)}
-              placeholder="Ví dụ: ABCDABCDABCDABCDABCDABCDABCDABCDABCDABCD"
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm text-slate-800 font-mono focus:outline-indigo-600"
-            />
+        return (
+          <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 relative border border-slate-100 flex flex-col max-h-[90vh]">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <Type className="w-5 h-5 text-indigo-600" />
+                  <span>Sửa / Dán Chuỗi Đáp Án (Mã Đề {activeCode})</span>
+                </h3>
+                <span
+                  className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                    isComplete
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                      : parsedCount > 0
+                      ? "bg-amber-50 text-amber-700 border-amber-200"
+                      : "bg-slate-100 text-slate-600 border-slate-200"
+                  }`}
+                >
+                  Đã nhận diện {parsedCount}/{totalReq} câu
+                </span>
+              </div>
 
-            <div className="flex justify-end gap-2 mt-4">
-              <button
-                onClick={() => setShowPasteModal(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100"
-              >
-                Hủy
-              </button>
-              <button
-                onClick={handlePasteKeyImport}
-                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs shadow-md"
-              >
-                Cập Nhật Đáp Án
-              </button>
+              <p className="text-xs text-slate-500 mb-3">
+                Nhập hoặc chỉnh sửa trực tiếp chuỗi đáp án bên dưới. Hệ thống tự động nhận diện mọi định dạng:{" "}
+                <code className="bg-slate-100 px-1 rounded text-indigo-700 font-bold">1A 2B 3C</code>,{" "}
+                <code className="bg-slate-100 px-1 rounded text-indigo-700 font-bold">1.A, 2.B</code>,{" "}
+                <code className="bg-slate-100 px-1 rounded text-indigo-700 font-bold">ABCD...</code> hoặc{" "}
+                <code className="bg-slate-100 px-1 rounded text-indigo-700 font-bold">Câu 1: A</code>.
+              </p>
+
+              {/* Format Presets Toolbar */}
+              <div className="flex flex-wrap items-center gap-1.5 mb-2 bg-slate-50 p-2 rounded-xl border border-slate-200/80">
+                <span className="text-[11px] font-bold text-slate-600 mr-1">Chuyển định dạng:</span>
+                <button
+                  type="button"
+                  onClick={() => convertTextToFormat("numbered")}
+                  className="px-2 py-1 rounded bg-white text-indigo-700 border border-slate-200 hover:bg-indigo-50 text-[10.5px] font-bold transition-colors"
+                >
+                  1A 2B 3C...
+                </button>
+                <button
+                  type="button"
+                  onClick={() => convertTextToFormat("dotted")}
+                  className="px-2 py-1 rounded bg-white text-indigo-700 border border-slate-200 hover:bg-indigo-50 text-[10.5px] font-bold transition-colors"
+                >
+                  1.A 2.B 3.C...
+                </button>
+                <button
+                  type="button"
+                  onClick={() => convertTextToFormat("continuous")}
+                  className="px-2 py-1 rounded bg-white text-indigo-700 border border-slate-200 hover:bg-indigo-50 text-[10.5px] font-bold transition-colors"
+                >
+                  ABCDABCD...
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPasteKeyText("")}
+                  className="px-2 py-1 rounded bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 text-[10.5px] font-bold transition-colors ml-auto"
+                >
+                  Xóa Trống
+                </button>
+              </div>
+
+              {/* Textarea */}
+              <textarea
+                rows={5}
+                value={pasteKeyText}
+                onChange={(e) => setPasteKeyText(e.target.value)}
+                placeholder="Dán hoặc gõ chuỗi đáp án vào đây..."
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm text-slate-800 font-mono focus:outline-indigo-600 focus:bg-white resize-y"
+              />
+
+              {/* Real-time Parsed Answers Grid Preview */}
+              <div className="mt-3 overflow-y-auto max-h-36 bg-slate-50 border border-slate-200 rounded-xl p-2.5">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[11px] font-bold text-slate-600">
+                    Xem trước kết quả nhận diện ({parsedCount} câu):
+                  </span>
+                  {parsedCount < totalReq && (
+                    <span className="text-[10.5px] text-amber-600 font-semibold italic">
+                      *Còn thiếu {totalReq - parsedCount} câu
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap gap-1">
+                  {Array.from({ length: totalReq }, (_, idx) => idx + 1).map((qNum) => {
+                    const ans = parsedPreview[qNum];
+                    return (
+                      <span
+                        key={qNum}
+                        className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ${
+                          ans
+                            ? "bg-indigo-100 text-indigo-900 border border-indigo-200"
+                            : "bg-red-50 text-red-400 border border-red-100"
+                        }`}
+                      >
+                        {qNum}:{ans || "?"}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 mt-4 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowPasteModal(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePasteKeyImport}
+                  disabled={parsedCount === 0}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white font-bold rounded-xl text-xs shadow-md transition-all flex items-center gap-1.5"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>Cập Nhật Đáp Án ({parsedCount} câu)</span>
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 };
