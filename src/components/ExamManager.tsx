@@ -286,47 +286,61 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
     const result: Record<number, "A" | "B" | "C" | "D"> = {};
     if (!text || !text.trim()) return result;
 
-    const cleaned = text.trim();
+    // Clean decorative headers and Vietnamese prefixes
+    const cleaned = text
+      .replace(/(bảng|đáp|án|mã|đề|câu|bài)\b/gi, "")
+      .replace(/[:=]+/g, " ")
+      .trim();
 
-    // Try matching explicitly numbered expressions like "1A", "1.A", "1: A", "1-A", "1) A", "Câu 1: A", "C1. A"
-    const numberedRegex = /(?:câu|c)?\s*(\d+)\s*[:.\-\)]*\s*([ABCDabcd])/gi;
-    let match;
-    let foundNumbered = false;
+    // Tokenize by whitespace, commas, semicolons, newlines, tabs
+    const tokens = cleaned.split(/[\s,;\t\n\r]+/);
+    let currentQ = 1;
 
-    while ((match = numberedRegex.exec(cleaned)) !== null) {
-      const qNum = parseInt(match[1], 10);
-      const ans = match[2].toUpperCase() as "A" | "B" | "C" | "D";
-      if (qNum >= 1 && qNum <= totalQuestions) {
-        result[qNum] = ans;
-        foundNumbered = true;
-      }
-    }
+    for (const token of tokens) {
+      if (!token) continue;
 
-    if (foundNumbered && Object.keys(result).length > 0) {
-      return result;
-    }
-
-    // Fallback: tokenize text and parse tokens or raw letters
-    const parts = cleaned.split(/[\s,;:\n\r]+/);
-    let qIndex = 1;
-
-    for (const part of parts) {
-      if (!part) continue;
-      const pairMatch = part.match(/^(\d+)[.\-:]*([ABCDabcd])$/i);
+      // Pattern A: Single token explicit pair (e.g., "1A", "1.A", "1-A", "1)A")
+      const pairMatch = token.match(/^(\d{1,3})[.\-\)]*([ABCDabcd])$/i);
       if (pairMatch) {
         const qNum = parseInt(pairMatch[1], 10);
         const ans = pairMatch[2].toUpperCase() as "A" | "B" | "C" | "D";
         if (qNum >= 1 && qNum <= totalQuestions) {
           result[qNum] = ans;
+          currentQ = qNum + 1;
         }
         continue;
       }
 
-      const letters = part.replace(/[^ABCDabcd]/g, "").toUpperCase();
-      for (let i = 0; i < letters.length; i++) {
-        if (qIndex <= totalQuestions) {
-          result[qIndex] = letters[i] as "A" | "B" | "C" | "D";
-          qIndex++;
+      // Pattern B: Standalone question number (e.g., "1", "1.", "1)", "1-")
+      const numMatch = token.match(/^(\d{1,3})[.\-\)]*$/);
+      if (numMatch) {
+        const qNum = parseInt(numMatch[1], 10);
+        if (qNum >= 1 && qNum <= totalQuestions) {
+          currentQ = qNum;
+        }
+        continue;
+      }
+
+      // Pattern C: Multiple continuous explicit pairs in a single token (e.g., "1A2B3C4D" or "1.A2.B3.C")
+      const multiPairMatches = Array.from(token.matchAll(/(\d{1,3})[.\-\)]*([ABCDabcd])/gi));
+      if (multiPairMatches.length > 0) {
+        for (const m of multiPairMatches) {
+          const qNum = parseInt(m[1], 10);
+          const ans = m[2].toUpperCase() as "A" | "B" | "C" | "D";
+          if (qNum >= 1 && qNum <= totalQuestions) {
+            result[qNum] = ans;
+            currentQ = qNum + 1;
+          }
+        }
+        continue;
+      }
+
+      // Pattern D: Raw answer letters (e.g., "A", "B", "ABCD", "ADCBBC...")
+      const lettersOnly = token.replace(/[^ABCDabcd]/g, "").toUpperCase();
+      for (let i = 0; i < lettersOnly.length; i++) {
+        if (currentQ <= totalQuestions) {
+          result[currentQ] = lettersOnly[i] as "A" | "B" | "C" | "D";
+          currentQ++;
         }
       }
     }
@@ -351,8 +365,11 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
     const parsed = parseAnswerString(pasteKeyText, selectedExam.questionCount);
     const currentKeys = selectedExam.examKeys[activeCode] || {};
 
+    const parsedNums = Object.keys(parsed).map((n) => parseInt(n, 10));
+    const limit = parsedNums.length > 0 ? Math.max(...parsedNums) : selectedExam.questionCount;
+
     let formatted = "";
-    for (let i = 1; i <= selectedExam.questionCount; i++) {
+    for (let i = 1; i <= limit; i++) {
       const ans = parsed[i] || currentKeys[i] || "A";
       if (formatType === "numbered") {
         formatted += `${i}${ans} `;
