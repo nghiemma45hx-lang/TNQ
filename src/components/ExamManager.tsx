@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Exam } from "../types";
 import { Plus, Edit3, Trash2, Key, Printer, CheckCircle, FileSpreadsheet, Copy, Sparkles, Save, HelpCircle, ArrowLeft, Check, Link, Type } from "lucide-react";
 
@@ -140,11 +140,44 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
     onSaveExam(updatedExam);
   };
 
+  useEffect(() => {
+    if (selectedExam) {
+      const match = exams.find((e) => e.id === selectedExam.id);
+      if (match) {
+        setSelectedExam(match);
+        // Ensure activeCode exists in matched exam keys
+        if (!match.examKeys[activeCode]) {
+          setActiveCode(Object.keys(match.examKeys)[0] || "101");
+        }
+      } else if (exams.length > 0) {
+        setSelectedExam(exams[0]);
+        setActiveCode(Object.keys(exams[0].examKeys)[0] || "101");
+      } else {
+        setSelectedExam(null);
+      }
+    } else if (exams.length > 0) {
+      setSelectedExam(exams[0]);
+      setActiveCode(Object.keys(exams[0].examKeys)[0] || "101");
+    }
+  }, [exams]);
+
+  const getNextAvailableCode = (existingCodes: string[]): string => {
+    const nums = existingCodes
+      .map((c) => parseInt(c, 10))
+      .filter((n) => !isNaN(n));
+    let nextNum = nums.length > 0 ? Math.max(...nums) + 1 : 101;
+    if (nextNum < 101) nextNum = 101;
+
+    while (existingCodes.includes(nextNum.toString())) {
+      nextNum++;
+    }
+    return nextNum.toString();
+  };
+
   const handleAddNewCode = () => {
     if (!selectedExam) return;
     const existingCodes = Object.keys(selectedExam.examKeys);
-    const newCodeNumber = 101 + existingCodes.length;
-    const newCode = newCodeNumber.toString();
+    const newCode = getNextAvailableCode(existingCodes);
 
     // Generate rotated keys
     const options: ("A" | "B" | "C" | "D")[] = ["A", "B", "C", "D"];
@@ -164,6 +197,7 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
     setSelectedExam(updatedExam);
     setActiveCode(newCode);
     onSaveExam(updatedExam);
+    triggerSaveToast(`Đã tạo thành công mã đề mới ${newCode}!`);
   };
 
   const handleDeleteCode = (codeToDelete: string) => {
@@ -193,8 +227,7 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
   const handleDuplicateCode = (codeToDup: string) => {
     if (!selectedExam) return;
     const existingCodes = Object.keys(selectedExam.examKeys);
-    const nextCodeNum = 101 + existingCodes.length;
-    const newCode = nextCodeNum.toString();
+    const newCode = getNextAvailableCode(existingCodes);
 
     const clonedKeys = { ...(selectedExam.examKeys[codeToDup] || {}) };
 
