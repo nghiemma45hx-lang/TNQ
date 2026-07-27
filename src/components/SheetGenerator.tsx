@@ -25,7 +25,6 @@ import {
   ChevronDown,
   Layers,
   FileStack,
-  ListChecks,
 } from "lucide-react";
 import QRCode from "qrcode";
 import html2canvas from "html2canvas";
@@ -85,30 +84,6 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
   const [studentList, setStudentList] = useState<LoadedStudent[]>([]);
   const [selectedStudentIdx, setSelectedStudentIdx] = useState<number>(-1);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Integrated Question Sections Checklist for Answer Sheet
-  const [integratedSections, setIntegratedSections] = useState<{
-    multiple_choice: boolean;
-    true_false: boolean;
-    matching: boolean;
-    fill_blank: boolean;
-  }>({
-    multiple_choice: true,
-    true_false: currentExam?.enabledFormats?.true_false ?? false,
-    matching: currentExam?.enabledFormats?.matching ?? false,
-    fill_blank: currentExam?.enabledFormats?.fill_blank ?? false,
-  });
-
-  useEffect(() => {
-    if (currentExam?.enabledFormats) {
-      setIntegratedSections({
-        multiple_choice: currentExam.enabledFormats.multiple_choice ?? true,
-        true_false: currentExam.enabledFormats.true_false ?? false,
-        matching: currentExam.enabledFormats.matching ?? false,
-        fill_blank: currentExam.enabledFormats.fill_blank ?? false,
-      });
-    }
-  }, [currentExam]);
 
   // Essay Ruled Lines Configuration (Dòng kẻ tự luận phía dưới đường kẻ đỏ)
   const [enableEssayLines, setEnableEssayLines] = useState<boolean>(true);
@@ -1895,70 +1870,7 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
             )}
           </div>
 
-          {/* 5. CẤU HÌNH TÍCH CHỌN TÍCH HỢP VÀO PHIẾU TRẢ LỜI TRẮC NGHIỆM */}
-          <div className="p-3 bg-indigo-50/80 border border-indigo-200/80 rounded-xl space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
-                <ListChecks className="w-4 h-4 text-indigo-600" />
-                Tích Chọn Tích Hợp Vào Phiếu
-              </span>
-              <span className="text-[10px] font-bold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-full border border-indigo-200">
-                OMR Tùy Chỉnh
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-1 border-t border-indigo-200/60 text-xs font-semibold text-slate-800">
-              <label className="flex items-center gap-2 bg-white p-2 rounded-lg border border-slate-200 hover:border-indigo-300 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={integratedSections.multiple_choice}
-                  onChange={(e) =>
-                    setIntegratedSections((prev) => ({ ...prev, multiple_choice: e.target.checked }))
-                  }
-                  className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
-                />
-                <span>Phần I: Trắc nghiệm (A,B,C,D)</span>
-              </label>
-
-              <label className="flex items-center gap-2 bg-white p-2 rounded-lg border border-slate-200 hover:border-indigo-300 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={integratedSections.true_false}
-                  onChange={(e) =>
-                    setIntegratedSections((prev) => ({ ...prev, true_false: e.target.checked }))
-                  }
-                  className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
-                />
-                <span>Phần II: Đúng / Sai (Đ / S)</span>
-              </label>
-
-              <label className="flex items-center gap-2 bg-white p-2 rounded-lg border border-slate-200 hover:border-indigo-300 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={integratedSections.matching}
-                  onChange={(e) =>
-                    setIntegratedSections((prev) => ({ ...prev, matching: e.target.checked }))
-                  }
-                  className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
-                />
-                <span>Phần III: Ghép nối</span>
-              </label>
-
-              <label className="flex items-center gap-2 bg-white p-2 rounded-lg border border-slate-200 hover:border-indigo-300 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={integratedSections.fill_blank}
-                  onChange={(e) =>
-                    setIntegratedSections((prev) => ({ ...prev, fill_blank: e.target.checked }))
-                  }
-                  className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
-                />
-                <span>Phần IV: Điền khuyết</span>
-              </label>
-            </div>
-          </div>
-
-          {/* 6. CẤU HÌNH DÒNG KẺ TỰ LUẬN PHÍA DƯỚI ĐƯỜNG KẺ ĐỎ */}
+          {/* 5. CẤU HÌNH DÒNG KẺ TỰ LUẬN PHÍA DƯỚI ĐƯỜNG KẺ ĐỎ */}
           <div className="p-3 bg-red-50/70 border border-red-200/80 rounded-xl space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-red-900 flex items-center gap-1.5 cursor-pointer select-none">
@@ -2085,136 +1997,27 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
                 </div>
               </div>
 
-              {/* Question Bubbles Grid & Integrated Sections */}
-              <div className="space-y-3">
-                {/* PHẦN I: TRẮC NGHIỆM LỰA CHỌN */}
-                {integratedSections.multiple_choice && (
-                  <div className="space-y-1.5">
-                    {Object.values(integratedSections).filter(Boolean).length > 1 && (
-                      <div className="text-[10px] font-bold text-black uppercase bg-slate-100 px-2 py-0.5 border border-slate-300 rounded flex justify-between">
-                        <span>PHẦN I: CÂU HỎI TRẮC NGHIỆM NHIỀU LỰA CHỌN (Tô kín 1 ô A, B, C, D)</span>
+              {/* Question Bubbles Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-3">
+                {Array.from({ length: currentExam.questionCount }).map((_, idx) => {
+                  const qNum = idx + 1;
+                  return (
+                    <div key={qNum} className="flex items-center justify-between border-b border-slate-200 pb-1 text-[11px]">
+                      <span className="font-bold w-7 text-right pr-1 font-mono">{qNum}.</span>
+                      <div className="flex items-center gap-1.5" translate="no">
+                        {(["A", "B", "C", "D"] as const).map((choice) => (
+                          <div
+                            key={choice}
+                            translate="no"
+                            className="notranslate w-5 h-5 rounded-full border border-black flex items-center justify-center font-bold text-[9px] bg-white text-black"
+                          >
+                            {choice}
+                          </div>
+                        ))}
                       </div>
-                    )}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2">
-                      {Array.from({ length: currentExam.questionCount })
-                        .map((_, idx) => idx + 1)
-                        .filter((qNum) => {
-                          const t = currentExam.questionTypes?.[qNum] || currentExam.defaultQuestionType || "multiple_choice";
-                          return t === "multiple_choice" || (!currentExam.questionTypes && integratedSections.multiple_choice);
-                        })
-                        .map((qNum) => (
-                          <div key={qNum} className="flex items-center justify-between border-b border-slate-200 pb-1 text-[11px]">
-                            <span className="font-bold w-7 text-right pr-1 font-mono">{qNum}.</span>
-                            <div className="flex items-center gap-1.5" translate="no">
-                              {(["A", "B", "C", "D"] as const).map((choice) => (
-                                <div
-                                  key={choice}
-                                  translate="no"
-                                  className="notranslate w-5 h-5 rounded-full border border-black flex items-center justify-center font-bold text-[9px] bg-white text-black"
-                                >
-                                  {choice}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
                     </div>
-                  </div>
-                )}
-
-                {/* PHẦN II: CÂU HỎI ĐÚNG / SAI */}
-                {integratedSections.true_false && (
-                  <div className="space-y-1.5">
-                    <div className="text-[10px] font-bold text-black uppercase bg-slate-100 px-2 py-0.5 border border-slate-300 rounded flex justify-between">
-                      <span>PHẦN II: CÂU HỎI ĐÚNG / SAI (Tô tròn ô [Đ] hoặc [S])</span>
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2">
-                      {Array.from({ length: currentExam.questionCount })
-                        .map((_, idx) => idx + 1)
-                        .filter((qNum) => {
-                          const t = currentExam.questionTypes?.[qNum];
-                          return t === "true_false" || (!currentExam.questionTypes && integratedSections.true_false);
-                        })
-                        .map((qNum) => (
-                          <div key={qNum} className="flex items-center justify-between border-b border-slate-200 pb-1 text-[11px]">
-                            <span className="font-bold w-7 text-right pr-1 font-mono">{qNum}.</span>
-                            <div className="flex items-center gap-2" translate="no">
-                              <span className="text-[9px] text-slate-500 font-sans italic">(Đ/S)</span>
-                              {["Đ", "S"].map((choice) => (
-                                <div
-                                  key={choice}
-                                  translate="no"
-                                  className="notranslate w-5 h-5 rounded-full border border-black flex items-center justify-center font-bold text-[9px] bg-white text-black"
-                                >
-                                  {choice}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* PHẦN III: CÂU HỎI GHÉP NỐI */}
-                {integratedSections.matching && (
-                  <div className="space-y-1.5">
-                    <div className="text-[10px] font-bold text-black uppercase bg-slate-100 px-2 py-0.5 border border-slate-300 rounded flex justify-between">
-                      <span>PHẦN III: CÂU HỎI GHÉP NỐI (Chọn ô cặp ghép tương ứng)</span>
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2">
-                      {Array.from({ length: currentExam.questionCount })
-                        .map((_, idx) => idx + 1)
-                        .filter((qNum) => {
-                          const t = currentExam.questionTypes?.[qNum];
-                          return t === "matching" || (!currentExam.questionTypes && integratedSections.matching);
-                        })
-                        .map((qNum) => (
-                          <div key={qNum} className="flex items-center justify-between border-b border-slate-200 pb-1 text-[11px]">
-                            <span className="font-bold w-7 text-right pr-1 font-mono">{qNum}.</span>
-                            <div className="flex items-center gap-1" translate="no">
-                              {["1-A", "1-B", "1-C", "1-D"].map((choice) => (
-                                <div
-                                  key={choice}
-                                  translate="no"
-                                  className="notranslate px-1 h-5 rounded border border-black flex items-center justify-center font-bold text-[8px] bg-white text-black"
-                                >
-                                  {choice}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* PHẦN IV: CÂU HỎI TRẢ LỜI NGẮN / ĐIỀN KHUYẾT */}
-                {integratedSections.fill_blank && (
-                  <div className="space-y-1.5">
-                    <div className="text-[10px] font-bold text-black uppercase bg-slate-100 px-2 py-0.5 border border-slate-300 rounded flex justify-between">
-                      <span>PHẦN IV: TRẢ LỜI NGẮN / ĐIỀN KHUYẾT (Viết từ hoặc số vào ô)</span>
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2">
-                      {Array.from({ length: currentExam.questionCount })
-                        .map((_, idx) => idx + 1)
-                        .filter((qNum) => {
-                          const t = currentExam.questionTypes?.[qNum];
-                          return t === "fill_blank" || (!currentExam.questionTypes && integratedSections.fill_blank);
-                        })
-                        .map((qNum) => (
-                          <div key={qNum} className="flex items-center justify-between border-b border-slate-200 pb-1 text-[11px]">
-                            <span className="font-bold w-7 text-right pr-1 font-mono">{qNum}.</span>
-                            <div className="flex items-center pl-1 flex-1">
-                              <div className="w-full h-5 border border-black rounded bg-slate-50 text-[9px] text-slate-400 font-mono flex items-center px-1">
-                                [ Ô Điền ]
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
-                )}
+                  );
+                })}
               </div>
 
               {/* RED LINE DIVIDER & AUTO-GENERATED ESSAY RULED LINES */}

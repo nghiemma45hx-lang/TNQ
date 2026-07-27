@@ -1,8 +1,6 @@
-export type QuestionType = "multiple_choice" | "true_false" | "matching" | "fill_blank";
-
 export interface AnswerKeyOption {
   question: number;
-  answer: string;
+  answer: "A" | "B" | "C" | "D" | string;
 }
 
 export interface ExamCodeKey {
@@ -18,9 +16,6 @@ export interface Exam {
   questionCount: number; // 5, 7, 8, 9, 10, 11, 12, 15, 20, 30, 40, 50
   durationMinutes: number;
   createdAt: string;
-  defaultQuestionType?: QuestionType;
-  enabledFormats?: Record<QuestionType, boolean>;
-  questionTypes?: Record<number, QuestionType>; // qNum -> QuestionType
   examKeys: Record<string, Record<number, string>>; // code -> { qNum: ans }
   status: "draft" | "active" | "archived";
 }
