@@ -773,7 +773,11 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
   } | null>(null);
 
   const captureSheetToCanvas = async (element: HTMLElement): Promise<HTMLCanvasElement> => {
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    if (document.fonts) {
+      try {
+        await document.fonts.ready;
+      } catch (e) {}
+    }
 
     const sanitizeCssString = (str: string): string => {
       if (!str || typeof str !== "string") return str;
@@ -802,12 +806,6 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
       logging: false,
       scrollX: 0,
       scrollY: 0,
-      x: 0,
-      y: 0,
-      width: 794,
-      height: 1123,
-      windowWidth: 794,
-      windowHeight: 1123,
       onclone: (clonedDoc) => {
         // 1. Intercept getComputedStyle in cloned document window to strip oklch dynamically
         if (clonedDoc.defaultView) {
@@ -878,7 +876,7 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
           }
         });
 
-        // 5. Isolate the target element to body root to avoid scroll offset or overflow wrapping bugs
+        // 5. Isolate the target element to body root for exact canvas rendering
         const clonedTarget = clonedDoc.getElementById("omr-sheet-printable");
         if (clonedTarget) {
           clonedDoc.body.innerHTML = "";
@@ -888,12 +886,14 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
           clonedDoc.body.style.backgroundColor = "#ffffff";
           clonedDoc.body.style.overflow = "visible";
 
-          clonedTarget.style.position = "static";
+          clonedTarget.style.position = "absolute";
+          clonedTarget.style.top = "0";
+          clonedTarget.style.left = "0";
           clonedTarget.style.width = "794px";
           clonedTarget.style.minHeight = "1123px";
           clonedTarget.style.transform = "none";
           clonedTarget.style.boxShadow = "none";
-          clonedTarget.style.margin = "0 auto";
+          clonedTarget.style.margin = "0";
           clonedTarget.style.backgroundColor = "#ffffff";
         }
       },
@@ -904,12 +904,53 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
     window.print();
   };
 
+  // Helper to generate QR Data URL synchronously/reliably
+  const generateQrDataUrl = async (sbdVal: string, codeVal: string, examIdVal: string): Promise<string> => {
+    const payload = JSON.stringify({
+      sbd: sbdVal || "80101",
+      code: codeVal || "101",
+      examId: examIdVal,
+    });
+    return new Promise((resolve) => {
+      QRCode.toDataURL(payload, { width: 120, margin: 1 }, (err, url) => {
+        if (!err && url) resolve(url);
+        else resolve("");
+      });
+    });
+  };
+
+  // Helper to trigger browser download for Blobs
+  const triggerBlobDownload = (blob: Blob, fileName: string) => {
+    const blobUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = blobUrl;
+    link.download = fileName;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    document.body.appendChild(link);
+    try {
+      link.click();
+    } catch (e) {
+      console.warn("Auto link click failed:", e);
+    }
+    setTimeout(() => {
+      if (document.body.contains(link)) {
+        document.body.removeChild(link);
+      }
+    }, 2000);
+    return blobUrl;
+  };
+
   const handleDownloadPdf = async () => {
     if (!sheetRef.current) return;
     setIsExportingPdf(true);
     setPdfSuccessMsg(null);
 
     try {
+      const qrUrl = await generateQrDataUrl(sbd, examCode, currentExam.id);
+      if (qrUrl) setQrCanvasUrl(qrUrl);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
       const element = sheetRef.current;
       const canvas = await captureSheetToCanvas(element);
 
@@ -931,17 +972,7 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
         .replace(/\s+/g, "_");
 
       const pdfBlob = pdf.output("blob");
-      const blobUrl = URL.createObjectURL(pdfBlob);
-
-      // Programmatic download
-      const link = document.createElement("a");
-      link.href = blobUrl;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      setTimeout(() => {
-        document.body.removeChild(link);
-      }, 1000);
+      const blobUrl = triggerBlobDownload(pdfBlob, fileName);
 
       setDownloadReady({
         url: blobUrl,
@@ -952,7 +983,7 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
       setPdfSuccessMsg(`Đã tạo file PDF A4 thành công: ${fileName}`);
     } catch (err: any) {
       console.error("PDF generation error:", err);
-      alert("Không thể tạo file PDF tự động. Bạn có thể bấm 'In Ngay' và chọn 'Lưu dưới dạng PDF' của trình duyệt.");
+      alert("Không thể tạo file PDF tự động: " + (err.message || "Vui lòng thử lại"));
     } finally {
       setIsExportingPdf(false);
     }
@@ -964,6 +995,10 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
     setPdfSuccessMsg(null);
 
     try {
+      const qrUrl = await generateQrDataUrl(sbd, examCode, currentExam.id);
+      if (qrUrl) setQrCanvasUrl(qrUrl);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
       const element = sheetRef.current;
       const canvas = await captureSheetToCanvas(element);
 
@@ -974,6 +1009,9 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
       for (let i = 0; i < len; i++) {
         bytes[i] = binaryString.charCodeAt(i);
       }
+
+      const docWidthPt = 538;
+      const docHeightPt = Math.round((canvas.height * docWidthPt) / canvas.width);
 
       const doc = new Document({
         sections: [
@@ -996,8 +1034,8 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
                     data: bytes,
                     type: "png",
                     transformation: {
-                      width: 595,
-                      height: Math.round((canvas.height * 595) / canvas.width),
+                      width: docWidthPt,
+                      height: Math.min(docHeightPt, 760),
                     },
                   }),
                 ],
@@ -1011,17 +1049,7 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
       const fileName = `Phieu_OMR_${currentExam.subject || "BaiThi"}_SBD_${sbd || "80101"}_De_${examCode}.docx`
         .replace(/\s+/g, "_");
 
-      const blobUrl = URL.createObjectURL(blob);
-
-      // Programmatic download
-      const link = document.createElement("a");
-      link.href = blobUrl;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      setTimeout(() => {
-        document.body.removeChild(link);
-      }, 1000);
+      const blobUrl = triggerBlobDownload(blob, fileName);
 
       setDownloadReady({
         url: blobUrl,
@@ -1032,26 +1060,10 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
       setPdfSuccessMsg(`Đã tạo file Word (.docx) A4 thành công: ${fileName}`);
     } catch (err: any) {
       console.error("DOCX generation error:", err);
-      alert("Không thể tạo file Word. Vui lòng thử lại hoặc sử dụng nút Xuất PDF.");
+      alert("Không thể tạo file Word: " + (err.message || "Vui lòng thử lại"));
     } finally {
       setIsExportingDocx(false);
     }
-  };
-
-  // Helper to trigger browser download for Blobs
-  const triggerBlobDownload = (blob: Blob, fileName: string) => {
-    const blobUrl = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = blobUrl;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    setTimeout(() => {
-      if (document.body.contains(link)) {
-        document.body.removeChild(link);
-      }
-    }, 1000);
-    return blobUrl;
   };
 
   // 1. BULK EXPORT: Merged Multi-Page PDF for all students
@@ -1076,7 +1088,15 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
       for (let i = 0; i < list.length; i++) {
         const st = list[i];
         setSelectedStudentIdx(i);
-        applyStudentData(st);
+
+        const qrUrl = await generateQrDataUrl(st.sbd, st.examCode || "101", currentExam.id);
+        if (qrUrl) setQrCanvasUrl(qrUrl);
+
+        setStudentName(st.name);
+        setClassName(st.className);
+        setSbd(st.sbd);
+        if (st.examCode) setExamCode(st.examCode);
+
         setBulkExportProgress({
           current: i + 1,
           total: list.length,
@@ -1084,8 +1104,7 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
           actionName: `Đang tạo trang PDF A4 phiếu OMR cho học sinh ${st.name}...`,
         });
 
-        // Delay to allow React state & canvas update
-        await new Promise((resolve) => setTimeout(resolve, 250));
+        await new Promise((resolve) => setTimeout(resolve, 300));
 
         const canvas = await captureSheetToCanvas(sheetRef.current);
         const imgData = canvas.toDataURL("image/png", 1.0);
@@ -1135,7 +1154,15 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
       for (let i = 0; i < list.length; i++) {
         const st = list[i];
         setSelectedStudentIdx(i);
-        applyStudentData(st);
+
+        const qrUrl = await generateQrDataUrl(st.sbd, st.examCode || "101", currentExam.id);
+        if (qrUrl) setQrCanvasUrl(qrUrl);
+
+        setStudentName(st.name);
+        setClassName(st.className);
+        setSbd(st.sbd);
+        if (st.examCode) setExamCode(st.examCode);
+
         setBulkExportProgress({
           current: i + 1,
           total: list.length,
@@ -1143,7 +1170,7 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
           actionName: `Đang tạo file Word (.docx) cho học sinh ${st.name}...`,
         });
 
-        await new Promise((resolve) => setTimeout(resolve, 250));
+        await new Promise((resolve) => setTimeout(resolve, 300));
 
         const canvas = await captureSheetToCanvas(sheetRef.current);
         const base64Data = canvas.toDataURL("image/png").replace(/^data:image\/png;base64,/, "");
@@ -1153,6 +1180,9 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
         for (let j = 0; j < len; j++) {
           bytes[j] = binaryString.charCodeAt(j);
         }
+
+        const docWidthPt = 538;
+        const docHeightPt = Math.round((canvas.height * docWidthPt) / canvas.width);
 
         const doc = new Document({
           sections: [
@@ -1175,8 +1205,8 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
                       data: bytes,
                       type: "png",
                       transformation: {
-                        width: 595,
-                        height: Math.round((canvas.height * 595) / canvas.width),
+                        width: docWidthPt,
+                        height: Math.min(docHeightPt, 760),
                       },
                     }),
                   ],
@@ -1235,7 +1265,15 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
       for (let i = 0; i < list.length; i++) {
         const st = list[i];
         setSelectedStudentIdx(i);
-        applyStudentData(st);
+
+        const qrUrl = await generateQrDataUrl(st.sbd, st.examCode || "101", currentExam.id);
+        if (qrUrl) setQrCanvasUrl(qrUrl);
+
+        setStudentName(st.name);
+        setClassName(st.className);
+        setSbd(st.sbd);
+        if (st.examCode) setExamCode(st.examCode);
+
         setBulkExportProgress({
           current: i + 1,
           total: list.length,
@@ -1243,7 +1281,7 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
           actionName: `Đang tạo trang PDF A4 cho học sinh ${st.name}...`,
         });
 
-        await new Promise((resolve) => setTimeout(resolve, 250));
+        await new Promise((resolve) => setTimeout(resolve, 300));
 
         const canvas = await captureSheetToCanvas(sheetRef.current);
         const imgData = canvas.toDataURL("image/png", 1.0);
