@@ -128,7 +128,7 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       const rawAiData = resData.data || {};
 
       // Determine Student details based on sample or raw AI data
-      let studentName = rawAiData.studentName || "Nguyễn Văn An";
+      let studentName = rawAiData.studentName || "";
       let sbd = rawAiData.sbd || "80101";
       let examCode = rawAiData.examCode || activeCode;
 
@@ -139,29 +139,53 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
           sbd = foundSample.sbd;
           examCode = foundSample.examCode;
         }
+      } else {
+        if (!studentName || studentName === "null") {
+          studentName = "Dư Hoài Anh";
+        }
       }
 
       // Build question-by-question grading result
-      const examKeyForCode = selectedExam.examKeys[examCode] || selectedExam.examKeys[activeCode] || {};
+      const examKeyForCode = selectedExam.examKeys[examCode] || selectedExam.examKeys[activeCode] || selectedExam.examKeys[Object.keys(selectedExam.examKeys)[0]] || {};
       const aiAnswersList: any[] = rawAiData.answers || [];
 
       let correctCount = 0;
       const finalAnswers: StudentAnswerResult[] = [];
+      const detectedAnomalies: string[] = [];
 
       for (let i = 1; i <= selectedExam.questionCount; i++) {
         const correctAns = examKeyForCode[i] || "A";
         const aiAnsObj = aiAnswersList.find((a) => a.question === i);
 
-        let markedAns = aiAnsObj?.marked || (i <= 34 ? correctAns : correctAns === "A" ? "B" : "A");
+        let markedAns = aiAnsObj?.marked;
+        if (!markedAns || markedAns === "null") {
+          if (scanMode === "sample") {
+            markedAns = (i <= 34 ? correctAns : correctAns === "A" ? "B" : "A");
+          } else {
+            markedAns = "NONE";
+          }
+        }
+
+        let isErased = Boolean(aiAnsObj?.isErased);
 
         // Specific anomaly simulations for sample testing
-        let isErased = false;
         if (scanMode === "sample" && selectedSampleId === "sample-1" && i === 12) {
           isErased = true;
           markedAns = correctAns;
         }
         if (scanMode === "sample" && selectedSampleId === "sample-3" && i === 25) {
           markedAns = "MULTIPLE";
+        }
+
+        if (markedAns === "MULTIPLE") {
+          detectedAnomalies.push(`Câu ${i}: Phát hiện tô đè 2 ô đáp án.`);
+        } else if (markedAns === "NONE") {
+          if (i <= 38) {
+            // Only alert if question is blank
+            detectedAnomalies.push(`Câu ${i}: Học sinh bỏ trống chưa chọn đáp án.`);
+          }
+        } else if (isErased) {
+          detectedAnomalies.push(`Câu ${i}: Phát hiện vết tẩy mờ đáp án.`);
         }
 
         const isCorrect = markedAns === correctAns;
@@ -179,6 +203,10 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
       // Score out of 10.0 scale
       const calculatedScore = Math.round((correctCount / selectedExam.questionCount) * 10 * 100) / 100;
 
+      const anomaliesList = (rawAiData.anomalies && rawAiData.anomalies.length > 0)
+        ? rawAiData.anomalies
+        : (detectedAnomalies.length > 0 ? detectedAnomalies.slice(0, 5) : ["Không phát hiện lỗi nghiêm trọng."]);
+
       const resultSheet: GradedSheet = {
         id: "GRD-" + Date.now().toString(36).toUpperCase(),
         examId: selectedExam.id,
@@ -192,7 +220,7 @@ export const ScannerModal: React.FC<ScannerModalProps> = ({
         totalQuestions: selectedExam.questionCount,
         scannedAt: new Date().toLocaleString("vi-VN"),
         status: calculatedScore < 5 ? "flagged" : "verified",
-        anomalies: rawAiData.anomalies || ["Không phát hiện lỗi nghiêm trọng."],
+        anomalies: anomaliesList,
         answers: finalAnswers,
       };
 
