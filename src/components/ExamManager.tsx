@@ -286,21 +286,23 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
     const result: Record<number, "A" | "B" | "C" | "D"> = {};
     if (!text || !text.trim()) return result;
 
-    // Clean decorative headers and Vietnamese prefixes
+    // Clean decorative headers, Vietnamese prefixes and normalize explicit question pairs
+    // e.g., "1: A", "1.A", "1-A", "1)A", "1 = A", "Câu 1: A" -> " 1A "
     const cleaned = text
-      .replace(/(bảng|đáp|án|mã|đề|câu|bài)\b/gi, "")
-      .replace(/[:=]+/g, " ")
+      .replace(/(bảng|đáp|án|mã|đề|câu|bài)\b/gi, " ")
+      .replace(/(\d{1,3})\s*[:=.\-\)]*\s*([ABCDabcd])\b/gi, " $1$2 ")
+      .replace(/[,;:=]+/g, " ")
       .trim();
 
-    // Tokenize by whitespace, commas, semicolons, newlines, tabs
-    const tokens = cleaned.split(/[\s,;\t\n\r]+/);
+    // Tokenize by whitespace, newlines, tabs
+    const tokens = cleaned.split(/\s+/);
     let currentQ = 1;
 
     for (const token of tokens) {
       if (!token) continue;
 
-      // Pattern A: Single token explicit pair (e.g., "1A", "1.A", "1-A", "1)A")
-      const pairMatch = token.match(/^(\d{1,3})[.\-\)]*([ABCDabcd])$/i);
+      // Pattern A: Single token explicit pair (e.g., "1A")
+      const pairMatch = token.match(/^(\d{1,3})([ABCDabcd])$/i);
       if (pairMatch) {
         const qNum = parseInt(pairMatch[1], 10);
         const ans = pairMatch[2].toUpperCase() as "A" | "B" | "C" | "D";
@@ -311,7 +313,7 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
         continue;
       }
 
-      // Pattern B: Standalone question number (e.g., "1", "1.", "1)", "1-")
+      // Pattern B: Standalone question number (e.g., "1", "1.", "1)")
       const numMatch = token.match(/^(\d{1,3})[.\-\)]*$/);
       if (numMatch) {
         const qNum = parseInt(numMatch[1], 10);
@@ -321,8 +323,8 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
         continue;
       }
 
-      // Pattern C: Multiple continuous explicit pairs in a single token (e.g., "1A2B3C4D" or "1.A2.B3.C")
-      const multiPairMatches = Array.from(token.matchAll(/(\d{1,3})[.\-\)]*([ABCDabcd])/gi));
+      // Pattern C: Multiple continuous explicit pairs in a single token (e.g., "1A2B3C4D")
+      const multiPairMatches = Array.from(token.matchAll(/(\d{1,3})([ABCDabcd])/gi));
       if (multiPairMatches.length > 0) {
         for (const m of multiPairMatches) {
           const qNum = parseInt(m[1], 10);
@@ -338,6 +340,9 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
       // Pattern D: Raw answer letters (e.g., "A", "B", "ABCD", "ADCBBC...")
       const lettersOnly = token.replace(/[^ABCDabcd]/g, "").toUpperCase();
       for (let i = 0; i < lettersOnly.length; i++) {
+        while (currentQ <= totalQuestions && result[currentQ]) {
+          currentQ++;
+        }
         if (currentQ <= totalQuestions) {
           result[currentQ] = lettersOnly[i] as "A" | "B" | "C" | "D";
           currentQ++;
@@ -363,22 +368,35 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
   const convertTextToFormat = (formatType: "numbered" | "dotted" | "continuous") => {
     if (!selectedExam) return;
     const parsed = parseAnswerString(pasteKeyText, selectedExam.questionCount);
-    const currentKeys = selectedExam.examKeys[activeCode] || {};
+    const parsedKeys = Object.keys(parsed)
+      .map((n) => parseInt(n, 10))
+      .sort((a, b) => a - b);
 
-    const parsedNums = Object.keys(parsed).map((n) => parseInt(n, 10));
-    const limit = parsedNums.length > 0 ? Math.max(...parsedNums) : selectedExam.questionCount;
+    if (parsedKeys.length === 0) return;
 
+    const limit = Math.max(...parsedKeys);
     let formatted = "";
-    for (let i = 1; i <= limit; i++) {
-      const ans = parsed[i] || currentKeys[i] || "A";
-      if (formatType === "numbered") {
-        formatted += `${i}${ans} `;
-      } else if (formatType === "dotted") {
-        formatted += `${i}.${ans} `;
-      } else if (formatType === "continuous") {
-        formatted += ans;
+
+    if (formatType === "numbered") {
+      for (let i = 1; i <= limit; i++) {
+        if (parsed[i]) {
+          formatted += `${i}${parsed[i]} `;
+        }
+      }
+    } else if (formatType === "dotted") {
+      for (let i = 1; i <= limit; i++) {
+        if (parsed[i]) {
+          formatted += `${i}.${parsed[i]} `;
+        }
+      }
+    } else if (formatType === "continuous") {
+      for (let i = 1; i <= limit; i++) {
+        if (parsed[i]) {
+          formatted += parsed[i];
+        }
       }
     }
+
     setPasteKeyText(formatted.trim());
   };
 
