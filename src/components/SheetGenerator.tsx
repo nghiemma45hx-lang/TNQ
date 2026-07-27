@@ -1354,6 +1354,86 @@ export const SheetGenerator: React.FC<SheetGeneratorProps> = ({
           )}
 
           <button
+            onClick={handleDownloadPdf}
+            disabled={isExportingPdf || isBulkExporting}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3.5 py-2.5 rounded-xl text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-75"
+            title="Xuất file PDF trang A4 chuẩn in ấn cho học sinh đang chọn"
+          >
+            {isExportingPdf ? (
+              <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+            ) : (
+              <Download className="w-4 h-4" />
+            )}
+            <span>{isExportingPdf ? "Đang Xuất PDF..." : "Xuất PDF Chuẩn A4"}</span>
+          </button>
+
+          {/* BULK EXPORT DROPDOWN MENU */}
+          <div className="relative">
+            <button
+              onClick={() => setShowBulkExportMenu((prev) => !prev)}
+              disabled={isBulkExporting}
+              className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-black px-4 py-2.5 rounded-xl text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-75"
+              title="Xuất đồng loạt nhiều file PDF cho toàn bộ danh sách học sinh"
+            >
+              <Archive className="w-4 h-4 text-purple-200" />
+              <span>Xuất Đồng Loạt ({studentList.length > 0 ? studentList.length : 1} HS)</span>
+              <ChevronDown className={`w-3.5 h-3.5 text-purple-200 transition-transform ${showBulkExportMenu ? "rotate-180" : ""}`} />
+            </button>
+
+            {showBulkExportMenu && (
+              <div className="absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-xl border border-slate-200/90 z-40 p-2 space-y-1 animate-in fade-in zoom-in-95">
+                <div className="px-3 py-1.5 border-b border-slate-100 mb-1">
+                  <p className="text-[11px] font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
+                    <FolderDown className="w-3.5 h-3.5 text-indigo-600" />
+                    Tùy chọn Xuất Đồng Loạt
+                  </p>
+                  <p className="text-[10px] text-slate-500">
+                    Áp dụng cho {studentList.length > 0 ? `${studentList.length} học sinh` : "1 học sinh hiện tại"}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowBulkExportMenu(false);
+                    handleBulkExportPdfMerged();
+                  }}
+                  className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-indigo-50 text-slate-700 hover:text-indigo-900 transition-all flex items-start gap-2.5 cursor-pointer group"
+                >
+                  <FileStack className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5 group-hover:scale-110 transition-transform" />
+                  <div>
+                    <p className="text-xs font-extrabold text-slate-800 group-hover:text-indigo-900">
+                      Xuất 1 File PDF Gộp
+                    </p>
+                    <p className="text-[10px] text-slate-500">
+                      Gộp toàn bộ phiếu {studentList.length || 1} học sinh thành 1 file PDF A4 duy nhất
+                    </p>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowBulkExportMenu(false);
+                    handleBulkExportPdfZip();
+                  }}
+                  className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-emerald-50 text-slate-700 hover:text-emerald-900 transition-all flex items-start gap-2.5 cursor-pointer group"
+                >
+                  <Archive className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5 group-hover:scale-110 transition-transform" />
+                  <div>
+                    <p className="text-xs font-extrabold text-slate-800 group-hover:text-emerald-900">
+                      Xuất ZIP Bộ File PDF
+                    </p>
+                    <p className="text-[10px] text-slate-500">
+                      Nén tất cả file PDF riêng lẻ của từng học sinh thành 1 file ZIP
+                    </p>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
+
+          <button
             onClick={handlePrintBrowser}
             className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3.5 py-2.5 rounded-xl text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
           >
