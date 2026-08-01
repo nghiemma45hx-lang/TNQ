@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Exam } from "../types";
-import { Plus, Edit3, Trash2, Key, Printer, CheckCircle, FileSpreadsheet, Copy, Sparkles, Save, HelpCircle, ArrowLeft, Check, Link, Type } from "lucide-react";
+import { Plus, Edit3, Trash2, Key, Printer, CheckCircle, FileSpreadsheet, Copy, Sparkles, Save, HelpCircle, ArrowLeft, Check, Link, Type, Eye, Download, RotateCcw, Undo2, Redo2, FileText, RefreshCw, X, FolderCheck } from "lucide-react";
 
 interface ExamManagerProps {
   exams: Exam[];
@@ -23,6 +23,16 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
   const [showPasteModal, setShowPasteModal] = useState(false);
   const [saveToast, setSaveToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("Đã lưu đáp án thành công!");
+
+  // Undo / Redo History Stack per Exam
+  const [historyStack, setHistoryStack] = useState<Record<string, Record<number, string>>[]>([]);
+  const [redoStack, setRedoStack] = useState<Record<string, Record<number, string>>[]>([]);
+  const [deletedCodesBuffer, setDeletedCodesBuffer] = useState<{ code: string; keys: Record<number, string>; timestamp: string }[]>([]);
+
+  // Modals for Saved Codes List & View Details
+  const [showSavedCodesModal, setShowSavedCodesModal] = useState(false);
+  const [showViewCodeModal, setShowViewCodeModal] = useState(false);
+  const [viewingCode, setViewingCode] = useState<string>("101");
 
   // New Exam Form State
   const [newTitle, setNewTitle] = useState("");
@@ -121,10 +131,151 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
     setActiveCode("101");
     setShowNewExamModal(false);
     setNewTitle("");
+    setHistoryStack([]);
+    setRedoStack([]);
+  };
+
+  const pushHistoryState = () => {
+    if (!selectedExam) return;
+    setHistoryStack((prev) => [...prev.slice(-25), JSON.parse(JSON.stringify(selectedExam.examKeys))]);
+    setRedoStack([]);
+  };
+
+  const handleUndo = () => {
+    if (!selectedExam) return;
+    if (historyStack.length > 0) {
+      const prevKeys = historyStack[historyStack.length - 1];
+      setHistoryStack((prev) => prev.slice(0, prev.length - 1));
+      setRedoStack((prev) => [...prev, JSON.parse(JSON.stringify(selectedExam.examKeys))]);
+
+      const updatedExam: Exam = {
+        ...selectedExam,
+        examKeys: prevKeys,
+      };
+
+      if (!prevKeys[activeCode]) {
+        setActiveCode(Object.keys(prevKeys)[0] || "101");
+      }
+
+      setSelectedExam(updatedExam);
+      onSaveExam(updatedExam);
+      triggerSaveToast("Đã hoàn tác (Undo) thao tác vừa rồi!");
+    } else if (deletedCodesBuffer.length > 0) {
+      const lastDeleted = deletedCodesBuffer[deletedCodesBuffer.length - 1];
+      setDeletedCodesBuffer((prev) => prev.slice(0, prev.length - 1));
+
+      const updatedExam: Exam = {
+        ...selectedExam,
+        examKeys: {
+          ...selectedExam.examKeys,
+          [lastDeleted.code]: lastDeleted.keys,
+        },
+      };
+
+      setSelectedExam(updatedExam);
+      setActiveCode(lastDeleted.code);
+      onSaveExam(updatedExam);
+      triggerSaveToast(`Đã hoàn tác & khôi phục mã đề ${lastDeleted.code}!`);
+    }
+  };
+
+  const handleRedo = () => {
+    if (!selectedExam || redoStack.length === 0) return;
+    const nextKeys = redoStack[redoStack.length - 1];
+    setRedoStack((prev) => prev.slice(0, prev.length - 1));
+    setHistoryStack((prev) => [...prev, JSON.parse(JSON.stringify(selectedExam.examKeys))]);
+
+    const updatedExam: Exam = {
+      ...selectedExam,
+      examKeys: nextKeys,
+    };
+
+    if (!nextKeys[activeCode]) {
+      setActiveCode(Object.keys(nextKeys)[0] || "101");
+    }
+
+    setSelectedExam(updatedExam);
+    onSaveExam(updatedExam);
+    triggerSaveToast("Đã làm lại (Redo) thao tác!");
+  };
+
+  const handleSaveActiveCode = () => {
+    if (!selectedExam) return;
+    onSaveExam(selectedExam);
+    triggerSaveToast(`Đã lưu cấu hình mã đề ${activeCode} thành công!`);
+  };
+
+  const handleDownloadCodeKeys = (code: string, format: "txt" | "csv" | "json") => {
+    if (!selectedExam) return;
+    const keys = selectedExam.examKeys[code] || {};
+    const totalQ = selectedExam.questionCount;
+
+    let content = "";
+    let fileName = `${selectedExam.title.replace(/[^a-zA-Z0-9_À-ỹ]/g, "_")}_MaDe_${code}`;
+    let mimeType = "text/plain";
+
+    if (format === "txt") {
+      fileName += "_DapAn.txt";
+      content = `=== BẢNG ĐÁP ÁN MÃ ĐỀ ${code} ===\n`;
+      content += `Bài thi: ${selectedExam.title}\n`;
+      content += `Môn: ${selectedExam.subject} | Khối: ${selectedExam.gradeClass}\n`;
+      content += `Số câu: ${totalQ} câu | Thời gian: ${selectedExam.durationMinutes} phút\n`;
+      content += `Ngày xuất: ${new Date().toLocaleString("vi-VN")}\n\n`;
+      content += `--- CHUỖI ĐÁP ÁN ---\n`;
+
+      let lineStr = "";
+      for (let i = 1; i <= totalQ; i++) {
+        lineStr += `${i}${keys[i] || "A"} `;
+        if (i % 10 === 0) {
+          content += lineStr.trim() + "\n";
+          lineStr = "";
+        }
+      }
+      if (lineStr.trim()) content += lineStr.trim() + "\n";
+
+      content += `\n--- CHI TIẾT TỪNG CÂU ---\n`;
+      for (let i = 1; i <= totalQ; i++) {
+        content += `Câu ${i.toString().padStart(2, "0")}: ${keys[i] || "A"}\n`;
+      }
+    } else if (format === "csv") {
+      fileName += "_DapAn.csv";
+      mimeType = "text/csv;charset=utf-8;";
+      content = "\uFEFF"; // UTF-8 BOM
+      content += "STT,Cau,Dap_An\n";
+      for (let i = 1; i <= totalQ; i++) {
+        content += `${i},Câu ${i},${keys[i] || "A"}\n`;
+      }
+    } else if (format === "json") {
+      fileName += "_DapAn.json";
+      mimeType = "application/json";
+      const jsonObj = {
+        examTitle: selectedExam.title,
+        subject: selectedExam.subject,
+        gradeClass: selectedExam.gradeClass,
+        questionCount: totalQ,
+        examCode: code,
+        savedAt: new Date().toISOString(),
+        answers: keys,
+      };
+      content = JSON.stringify(jsonObj, null, 2);
+    }
+
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    triggerSaveToast(`Đã tải xuống tệp đáp án Mã đề ${code} (${format.toUpperCase()})`);
   };
 
   const handleUpdateAnswerKey = (questionNum: number, choice: string) => {
     if (!selectedExam) return;
+    pushHistoryState();
     const currentKeys = selectedExam.examKeys[activeCode] || {};
     const updatedCodeKeys = { ...currentKeys, [questionNum]: choice };
 
@@ -176,6 +327,7 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
 
   const handleAddNewCode = () => {
     if (!selectedExam) return;
+    pushHistoryState();
     const existingCodes = Object.keys(selectedExam.examKeys);
     const newCode = getNextAvailableCode(existingCodes);
 
@@ -208,6 +360,18 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
       return;
     }
 
+    pushHistoryState();
+
+    const keysToDelete = selectedExam.examKeys[codeToDelete] || {};
+    setDeletedCodesBuffer((prev) => [
+      ...prev,
+      {
+        code: codeToDelete,
+        keys: keysToDelete,
+        timestamp: new Date().toLocaleTimeString("vi-VN"),
+      },
+    ]);
+
     const newExamKeys = { ...selectedExam.examKeys };
     delete newExamKeys[codeToDelete];
 
@@ -221,11 +385,12 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
     setSelectedExam(updatedExam);
     setActiveCode(nextActive);
     onSaveExam(updatedExam);
-    triggerSaveToast(`Đã xóa mã đề ${codeToDelete}`);
+    triggerSaveToast(`Đã xóa mã đề ${codeToDelete}. Nhấn "Hoàn tác" để khôi phục!`);
   };
 
   const handleDuplicateCode = (codeToDup: string) => {
     if (!selectedExam) return;
+    pushHistoryState();
     const existingCodes = Object.keys(selectedExam.examKeys);
     const newCode = getNextAvailableCode(existingCodes);
 
@@ -247,6 +412,7 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
 
   const handleSetAllAnswers = (choice: string) => {
     if (!selectedExam) return;
+    pushHistoryState();
     const updatedCodeKeys: Record<number, string> = {};
     for (let i = 1; i <= selectedExam.questionCount; i++) {
       updatedCodeKeys[i] = choice;
@@ -265,6 +431,7 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
 
   const handleRandomizeAnswers = () => {
     if (!selectedExam) return;
+    pushHistoryState();
     const options = ["A", "B", "C", "D"];
     const updatedCodeKeys: Record<number, string> = {};
     for (let i = 1; i <= selectedExam.questionCount; i++) {
@@ -543,6 +710,121 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
+                </div>
+              </div>
+
+              {/* Exam Code Management Toolbar: Lưu, Hoàn tác, Xem, Tải/Xóa */}
+              <div className="bg-slate-900 text-white p-3 rounded-2xl shadow-sm flex flex-wrap items-center justify-between gap-3 border border-slate-800">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-indigo-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <FolderCheck className="w-4 h-4 text-emerald-400" />
+                    <span>Quản Lý Mã Đề ({Object.keys(selectedExam.examKeys).length} mã)</span>
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Lưu Mã Đề */}
+                  <button
+                    onClick={handleSaveActiveCode}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all flex items-center gap-1.5 shadow-xs"
+                    title={`Lưu cấu hình đáp án mã đề ${activeCode}`}
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    <span>Lưu Mã Đề ({activeCode})</span>
+                  </button>
+
+                  {/* Hoàn Tác (Undo) */}
+                  <button
+                    onClick={handleUndo}
+                    disabled={historyStack.length === 0 && deletedCodesBuffer.length === 0}
+                    className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 text-slate-200 font-bold px-3 py-1.5 rounded-xl text-xs transition-all border border-slate-700 flex items-center gap-1.5"
+                    title={
+                      historyStack.length > 0
+                        ? `Hoàn tác thao tác vừa rồi (${historyStack.length} bước)`
+                        : deletedCodesBuffer.length > 0
+                        ? `Khôi phục mã đề ${deletedCodesBuffer[deletedCodesBuffer.length - 1].code}`
+                        : "Không có thao tác cần hoàn tác"
+                    }
+                  >
+                    <Undo2 className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Hoàn Tác</span>
+                    {(historyStack.length > 0 || deletedCodesBuffer.length > 0) && (
+                      <span className="bg-amber-400/20 text-amber-300 text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold">
+                        {historyStack.length + deletedCodesBuffer.length}
+                      </span>
+                    )}
+                  </button>
+
+                  {/* Làm Lại (Redo) */}
+                  {redoStack.length > 0 && (
+                    <button
+                      onClick={handleRedo}
+                      className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold px-3 py-1.5 rounded-xl text-xs transition-all border border-slate-700 flex items-center gap-1.5"
+                      title="Làm lại thao tác vừa hoàn tác"
+                    >
+                      <Redo2 className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>Làm Lại ({redoStack.length})</span>
+                    </button>
+                  )}
+
+                  {/* Xem Mã Đề Active */}
+                  <button
+                    onClick={() => {
+                      setViewingCode(activeCode);
+                      setShowViewCodeModal(true);
+                    }}
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all flex items-center gap-1.5"
+                    title={`Xem ma trận đáp án chi tiết cho mã đề ${activeCode}`}
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>Xem Đề {activeCode}</span>
+                  </button>
+
+                  {/* Quản Lý Bản Lưu */}
+                  <button
+                    onClick={() => setShowSavedCodesModal(true)}
+                    className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold px-3 py-1.5 rounded-xl text-xs transition-all border border-slate-700 flex items-center gap-1.5"
+                    title="Danh sách bản lưu tất cả mã đề: xem, tải file, xóa hoặc khôi phục"
+                  >
+                    <FileText className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Xem Tất Cả Bản Lưu</span>
+                  </button>
+
+                  {/* Tải về nhanh */}
+                  <div className="relative group">
+                    <button
+                      className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold px-3 py-1.5 rounded-xl text-xs transition-all border border-slate-700 flex items-center gap-1.5"
+                      title="Tải tệp đáp án mã đề về máy"
+                    >
+                      <Download className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Tải Về Đề {activeCode}</span>
+                    </button>
+
+                    {/* Dropdown Tải Về */}
+                    <div className="absolute right-0 top-full mt-1 w-40 bg-white text-slate-800 rounded-xl shadow-xl border border-slate-200 py-1 hidden group-hover:block z-30">
+                      <button
+                        onClick={() => handleDownloadCodeKeys(activeCode, "txt")}
+                        className="w-full px-3 py-1.5 text-left text-xs hover:bg-indigo-50 font-medium flex items-center gap-2"
+                      >
+                        <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                        <span>Tệp TXT Văn bản</span>
+                      </button>
+                      <button
+                        onClick={() => handleDownloadCodeKeys(activeCode, "csv")}
+                        className="w-full px-3 py-1.5 text-left text-xs hover:bg-emerald-50 font-medium flex items-center gap-2"
+                      >
+                        <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Tệp CSV / Excel</span>
+                      </button>
+                      <button
+                        onClick={() => handleDownloadCodeKeys(activeCode, "json")}
+                        className="w-full px-3 py-1.5 text-left text-xs hover:bg-amber-50 font-medium flex items-center gap-2"
+                      >
+                        <Key className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Tệp JSON Dữ liệu</span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -1041,6 +1323,297 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
           </div>
         );
       })()}
+
+      {/* Modal 1: Quản Lý & Xem Tất Cả Mã Đề Đã Lưu */}
+      {showSavedCodesModal && selectedExam && (
+        <div className="fixed inset-0 z-[110] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full p-6 relative border border-slate-100 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
+              <div>
+                <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                  <FolderCheck className="w-5 h-5 text-indigo-600" />
+                  <span>Danh Sách & Bản Lưu Mã Đề ({Object.keys(selectedExam.examKeys).length} mã)</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Bài thi: <span className="font-bold text-slate-700">{selectedExam.title}</span> ({selectedExam.questionCount} câu)
+                </p>
+              </div>
+              <button
+                onClick={() => setShowSavedCodesModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+              {/* Table / Card List of Exam Codes */}
+              {Object.keys(selectedExam.examKeys).map((code) => {
+                const keys = selectedExam.examKeys[code] || {};
+                const counts = { A: 0, B: 0, C: 0, D: 0 };
+                Object.values(keys).forEach((ans) => {
+                  if (ans in counts) counts[ans as keyof typeof counts]++;
+                });
+
+                return (
+                  <div
+                    key={code}
+                    className={`p-4 rounded-xl border transition-all ${
+                      activeCode === code
+                        ? "bg-indigo-50/70 border-indigo-300 ring-1 ring-indigo-400/30"
+                        : "bg-slate-50/70 border-slate-200/80 hover:bg-slate-100/80"
+                    }`}
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="bg-indigo-600 text-white text-xs font-mono font-bold px-2.5 py-1 rounded-lg">
+                            Mã Đề {code}
+                          </span>
+                          {activeCode === code && (
+                            <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-200">
+                              Đang chỉnh sửa
+                            </span>
+                          )}
+                          <span className="text-xs font-semibold text-slate-500">
+                            {selectedExam.questionCount} câu hỏi
+                          </span>
+                        </div>
+
+                        {/* Answer distribution badge */}
+                        <div className="flex items-center gap-2 mt-2 text-[11px] font-mono text-slate-600">
+                          <span className="bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded font-bold">A: {counts.A}</span>
+                          <span className="bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-bold">B: {counts.B}</span>
+                          <span className="bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-bold">C: {counts.C}</span>
+                          <span className="bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded font-bold">D: {counts.D}</span>
+                        </div>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {/* Select as Active */}
+                        <button
+                          onClick={() => {
+                            setActiveCode(code);
+                            triggerSaveToast(`Đã chọn Mã đề ${code} để chỉnh sửa`);
+                          }}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                            activeCode === code
+                              ? "bg-indigo-600 text-white"
+                              : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-100"
+                          }`}
+                        >
+                          {activeCode === code ? "Đang Chọn" : "Chọn Mã Này"}
+                        </button>
+
+                        {/* Xem Chi Tiết */}
+                        <button
+                          onClick={() => {
+                            setViewingCode(code);
+                            setShowViewCodeModal(true);
+                          }}
+                          className="bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 font-bold px-3 py-1.5 rounded-lg text-xs transition-colors flex items-center gap-1"
+                          title="Xem toàn bộ ma trận đáp án"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Xem Ma Trận</span>
+                        </button>
+
+                        {/* Tải về */}
+                        <button
+                          onClick={() => handleDownloadCodeKeys(code, "txt")}
+                          className="bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 font-bold px-3 py-1.5 rounded-lg text-xs transition-colors flex items-center gap-1"
+                          title="Tải tệp đáp án dạng TXT"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Tải TXT</span>
+                        </button>
+
+                        <button
+                          onClick={() => handleDownloadCodeKeys(code, "csv")}
+                          className="bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 font-bold px-3 py-1.5 rounded-lg text-xs transition-colors flex items-center gap-1"
+                          title="Tải tệp đáp án dạng CSV"
+                        >
+                          <FileSpreadsheet className="w-3.5 h-3.5" />
+                          <span>Tải CSV</span>
+                        </button>
+
+                        {/* Xóa */}
+                        {Object.keys(selectedExam.examKeys).length > 1 && (
+                          <button
+                            onClick={() => handleDeleteCode(code)}
+                            className="bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 p-1.5 rounded-lg transition-colors"
+                            title={`Xóa mã đề ${code}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Deleted Codes Buffer Section for Undo / Restore */}
+              {deletedCodesBuffer.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-slate-200">
+                  <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <Undo2 className="w-4 h-4 text-amber-500" />
+                    <span>Mã Đề Đã Xóa Gần Đây (Có Thể Khôi Phục)</span>
+                  </h4>
+                  <div className="space-y-2">
+                    {deletedCodesBuffer.map((delItem, idx) => (
+                      <div
+                        key={idx}
+                        className="bg-amber-50/60 border border-amber-200 p-3 rounded-xl flex items-center justify-between"
+                      >
+                        <div className="text-xs">
+                          <span className="font-bold text-amber-900 font-mono">Mã Đề {delItem.code}</span>
+                          <span className="text-slate-500 ml-2">Đã xóa lúc {delItem.timestamp}</span>
+                        </div>
+                        <button
+                          onClick={handleUndo}
+                          className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 shadow-xs"
+                        >
+                          <Undo2 className="w-3.5 h-3.5" />
+                          <span>Khôi Phục Mã Đề này</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="border-t border-slate-100 pt-3 mt-4 flex items-center justify-between">
+              <span className="text-xs text-slate-500">
+                *Bạn có thể hoàn tác lại mọi thao tác bằng phím tắt <kbd className="bg-slate-100 border px-1 rounded text-slate-700 font-mono">Ctrl+Z</kbd>
+              </span>
+              <button
+                onClick={() => setShowSavedCodesModal(false)}
+                className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs transition-all"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 2: Xem Chi Tiết Đáp Án Mã Đề (Matrix Grid & Copy) */}
+      {showViewCodeModal && selectedExam && (
+        <div className="fixed inset-0 z-[120] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 relative border border-slate-100 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
+              <div>
+                <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                  <Eye className="w-5 h-5 text-indigo-600" />
+                  <span>Ma Trận Đáp Án Chi Tiết - Mã Đề {viewingCode}</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Bài thi: <span className="font-bold text-slate-700">{selectedExam.title}</span> ({selectedExam.questionCount} câu)
+                </p>
+              </div>
+              <button
+                onClick={() => setShowViewCodeModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Answer Key Matrix Grid */}
+            <div className="flex-1 overflow-y-auto pr-1 space-y-4">
+              <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-8 gap-2 bg-slate-50 p-4 rounded-xl border border-slate-200/80">
+                {Array.from({ length: selectedExam.questionCount }, (_, idx) => idx + 1).map((qNum) => {
+                  const ans = selectedExam.examKeys[viewingCode]?.[qNum] || "A";
+                  const colorMap: Record<string, string> = {
+                    A: "bg-indigo-600 text-white border-indigo-700",
+                    B: "bg-emerald-600 text-white border-emerald-700",
+                    C: "bg-amber-500 text-white border-amber-600",
+                    D: "bg-purple-600 text-white border-purple-700",
+                  };
+
+                  return (
+                    <div
+                      key={qNum}
+                      className="bg-white p-2 rounded-xl border border-slate-200 text-center flex flex-col items-center justify-center shadow-2xs"
+                    >
+                      <span className="text-[10px] font-bold text-slate-400 font-mono">Câu {qNum}</span>
+                      <span
+                        className={`inline-block mt-1 text-xs font-black font-mono px-2 py-0.5 rounded-lg border shadow-2xs ${
+                          colorMap[ans] || "bg-indigo-600 text-white"
+                        }`}
+                      >
+                        {ans}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Raw string preview for copying */}
+              <div className="bg-slate-900 text-slate-200 p-3 rounded-xl border border-slate-800">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs font-bold text-indigo-300">Chuỗi đáp án nhanh:</span>
+                  <button
+                    onClick={() => {
+                      const keys = selectedExam.examKeys[viewingCode] || {};
+                      let str = "";
+                      for (let i = 1; i <= selectedExam.questionCount; i++) {
+                        str += `${i}${keys[i] || "A"} `;
+                      }
+                      navigator.clipboard.writeText(str.trim());
+                      triggerSaveToast(`Đã sao chép đáp án Mã đề ${viewingCode} vào khay nhớ tạm!`);
+                    }}
+                    className="bg-slate-800 hover:bg-slate-700 text-xs font-bold px-2.5 py-1 rounded-lg text-slate-200 border border-slate-700 transition-colors flex items-center gap-1"
+                  >
+                    <Copy className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Sao Chép Chuỗi</span>
+                  </button>
+                </div>
+                <p className="text-xs font-mono text-slate-300 break-all select-all">
+                  {(() => {
+                    const keys = selectedExam.examKeys[viewingCode] || {};
+                    let str = "";
+                    for (let i = 1; i <= selectedExam.questionCount; i++) {
+                      str += `${i}${keys[i] || "A"} `;
+                    }
+                    return str.trim();
+                  })()}
+                </p>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="border-t border-slate-100 pt-3 mt-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleDownloadCodeKeys(viewingCode, "txt")}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all flex items-center gap-1.5 shadow-xs"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Tải TXT</span>
+                </button>
+                <button
+                  onClick={() => handleDownloadCodeKeys(viewingCode, "csv")}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all flex items-center gap-1.5 shadow-xs"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  <span>Tải CSV</span>
+                </button>
+              </div>
+
+              <button
+                onClick={() => setShowViewCodeModal(false)}
+                className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs transition-all"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
