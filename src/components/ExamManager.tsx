@@ -1,6 +1,42 @@
 import React, { useState, useEffect } from "react";
 import { Exam } from "../types";
-import { Plus, Edit3, Trash2, Key, Printer, CheckCircle, FileSpreadsheet, Copy, Sparkles, Save, HelpCircle, ArrowLeft, Check, Link, Type, Eye, Download, RotateCcw, Undo2, Redo2, FileText, RefreshCw, X, FolderCheck } from "lucide-react";
+import {
+  Plus,
+  Edit3,
+  Trash2,
+  Key,
+  Printer,
+  CheckCircle,
+  FileSpreadsheet,
+  Copy,
+  Sparkles,
+  Save,
+  HelpCircle,
+  ArrowLeft,
+  Check,
+  Link,
+  Type,
+  Eye,
+  Download,
+  RotateCcw,
+  Undo2,
+  Redo2,
+  FileText,
+  RefreshCw,
+  X,
+  FolderCheck,
+  Archive,
+  ArchiveRestore,
+  FolderArchive,
+  Search,
+  Filter,
+  UploadCloud,
+  CheckSquare,
+  Square,
+  Layers,
+  Tag,
+  Calendar
+} from "lucide-react";
 
 interface ExamManagerProps {
   exams: Exam[];
@@ -23,6 +59,16 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
   const [showPasteModal, setShowPasteModal] = useState(false);
   const [saveToast, setSaveToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("Đã lưu đáp án thành công!");
+
+  // Exam Repository & Archive Filter State
+  const [statusTabFilter, setStatusTabFilter] = useState<"all" | "active" | "draft" | "archived">("all");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [subjectFilter, setSubjectFilter] = useState("all");
+  const [gradeFilter, setGradeFilter] = useState("all");
+
+  // Repository Modal & Batch Selection State
+  const [showArchiveModal, setShowArchiveModal] = useState(false);
+  const [selectedBatchExamIds, setSelectedBatchExamIds] = useState<string[]>([]);
 
   // Undo / Redo History Stack per Exam
   const [historyStack, setHistoryStack] = useState<Record<string, Record<number, string>>[]>([]);
@@ -133,7 +179,171 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
     setNewTitle("");
     setHistoryStack([]);
     setRedoStack([]);
+    triggerSaveToast(`Đã khởi tạo thành công bài thi '${created.title}'!`);
   };
+
+  // --- REPOSITORY & ARCHIVE MANAGEMENT HANDLERS ---
+  const handleToggleArchiveExam = (exam: Exam) => {
+    const isCurrentlyArchived = exam.status === "archived";
+    const nextStatus: "active" | "archived" = isCurrentlyArchived ? "active" : "archived";
+
+    const updated: Exam = {
+      ...exam,
+      status: nextStatus,
+    };
+
+    onSaveExam(updated);
+    if (selectedExam?.id === exam.id) {
+      setSelectedExam(updated);
+    }
+
+    if (nextStatus === "archived") {
+      triggerSaveToast(`Đã chuyển bài thi '${exam.title}' vào Kho Lưu Trữ!`);
+    } else {
+      triggerSaveToast(`Đã khôi phục bài thi '${exam.title}' ra danh sách kích hoạt!`);
+    }
+  };
+
+  const handleDuplicateExam = (exam: Exam) => {
+    const cloned: Exam = {
+      ...JSON.parse(JSON.stringify(exam)),
+      id: "EX-" + Date.now().toString(36).toUpperCase(),
+      title: `${exam.title} (Sao chép)`,
+      createdAt: new Date().toISOString().split("T")[0],
+      status: "draft",
+    };
+
+    onSaveExam(cloned);
+    setSelectedExam(cloned);
+    setActiveCode(Object.keys(cloned.examKeys)[0] || "101");
+    triggerSaveToast(`Đã nhân bản bài thi '${cloned.title}' vào kho bài thi!`);
+  };
+
+  const handleBatchArchiveExams = (targetStatus: "active" | "archived") => {
+    if (selectedBatchExamIds.length === 0) return;
+    let count = 0;
+    exams.forEach((ex) => {
+      if (selectedBatchExamIds.includes(ex.id)) {
+        onSaveExam({ ...ex, status: targetStatus });
+        count++;
+      }
+    });
+    setSelectedBatchExamIds([]);
+    triggerSaveToast(`Đã cập nhật trạng thái ${count} bài thi thành '${targetStatus === "archived" ? "Kho Lưu Trữ" : "Kích Hoạt"}'!`);
+  };
+
+  const handleBatchDeleteExams = () => {
+    if (selectedBatchExamIds.length === 0) return;
+    if (!window.confirm(`Bạn có chắc chắn muốn XÓA VĨNH VIỄN ${selectedBatchExamIds.length} bài kiểm tra khỏi kho lưu trữ?`)) {
+      return;
+    }
+    const count = selectedBatchExamIds.length;
+    selectedBatchExamIds.forEach((id) => {
+      onDeleteExam(id);
+    });
+    setSelectedBatchExamIds([]);
+    if (selectedExam && selectedBatchExamIds.includes(selectedExam.id)) {
+      setSelectedExam(exams.find((e) => !selectedBatchExamIds.includes(e.id)) || null);
+    }
+    triggerSaveToast(`Đã xóa vĩnh viễn ${count} bài thi khỏi kho lưu trữ!`);
+  };
+
+  const handleExportRepositoryJSON = () => {
+    const exportData = {
+      appName: "EduMark AI Test Repository",
+      exportedAt: new Date().toISOString(),
+      totalExams: filteredExams.length,
+      exams: filteredExams,
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `EduMark_KhoDeThi_${new Date().toISOString().split("T")[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    triggerSaveToast(`Đã xuất tệp kho lưu trữ (${filteredExams.length} bài thi) dạng JSON!`);
+  };
+
+  const handleImportRepositoryJSON = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const content = evt.target?.result as string;
+        const parsed = JSON.parse(content);
+        let importedExams: Exam[] = [];
+
+        if (Array.isArray(parsed)) {
+          importedExams = parsed;
+        } else if (parsed.exams && Array.isArray(parsed.exams)) {
+          importedExams = parsed.exams;
+        }
+
+        if (importedExams.length === 0) {
+          alert("Tệp JSON không chứa bài thi hợp lệ!");
+          return;
+        }
+
+        let importCount = 0;
+        importedExams.forEach((ex) => {
+          if (ex.title && ex.examKeys) {
+            const validExam: Exam = {
+              id: ex.id || "EX-" + Math.random().toString(36).substring(2, 9).toUpperCase(),
+              title: ex.title,
+              subject: ex.subject || "Khác",
+              gradeClass: ex.gradeClass || "Khối 8",
+              questionCount: ex.questionCount || 40,
+              durationMinutes: ex.durationMinutes || 45,
+              createdAt: ex.createdAt || new Date().toISOString().split("T")[0],
+              status: ex.status || "active",
+              examKeys: ex.examKeys,
+            };
+            onSaveExam(validExam);
+            importCount++;
+          }
+        });
+
+        triggerSaveToast(`Đã nhập thành công ${importCount} bài thi vào Kho Lưu Trữ!`);
+      } catch (err) {
+        alert("Lỗi đọc tệp JSON. Vui lòng kiểm tra lại định dạng tệp!");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  // Filtered Exam Collection
+  const filteredExams = exams.filter((exam) => {
+    // Status filter
+    if (statusTabFilter === "active" && exam.status === "archived") return false;
+    if (statusTabFilter === "archived" && exam.status !== "archived") return false;
+    if (statusTabFilter === "draft" && exam.status !== "draft") return false;
+
+    // Search query
+    if (searchTerm.trim()) {
+      const q = searchTerm.toLowerCase().trim();
+      const matchTitle = exam.title.toLowerCase().includes(q);
+      const matchSubject = exam.subject.toLowerCase().includes(q);
+      const matchGrade = exam.gradeClass.toLowerCase().includes(q);
+      const matchCodes = Object.keys(exam.examKeys).some((code) => code.toLowerCase().includes(q));
+      if (!matchTitle && !matchSubject && !matchGrade && !matchCodes) return false;
+    }
+
+    // Subject filter
+    if (subjectFilter !== "all" && exam.subject !== subjectFilter) return false;
+
+    // Grade filter
+    if (gradeFilter !== "all" && exam.gradeClass !== gradeFilter) return false;
+
+    return true;
+  });
 
   const pushHistoryState = () => {
     if (!selectedExam) return;
@@ -606,65 +816,204 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
       )}
 
       {/* Top Title Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs">
         <div>
           <h1 className="text-xl font-black text-slate-900 flex items-center gap-2">
             <Key className="w-6 h-6 text-indigo-600" />
             <span>Quản Lý Bài Kiểm Tra & Bảng Đáp Án</span>
           </h1>
           <p className="text-xs text-slate-500 mt-1">
-            Thiết lập ma trận đáp án cho các mã đề (101, 102...), sẵn sàng cho AI OMR quét chấm.
+            Thiết lập ma trận đáp án cho các mã đề (101, 102...), lưu trữ kho đề thi trực tuyến sẵn sàng cho AI OMR chấm tự động.
           </p>
         </div>
 
-        <button
-          onClick={() => setShowNewExamModal(true)}
-          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs shadow-md transition-all flex items-center justify-center gap-2"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Tạo Bài Thi Mới</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Open Archive Repository Modal */}
+          <button
+            onClick={() => setShowArchiveModal(true)}
+            className="bg-amber-500 hover:bg-amber-600 text-white font-bold px-4 py-2.5 rounded-xl text-xs shadow-md transition-all flex items-center justify-center gap-2 relative"
+            title="Mở Kho Lưu Trữ Bài Thi toàn diện: xem danh sách, lọc, khôi phục, sao lưu & nhập xuất"
+          >
+            <FolderArchive className="w-4 h-4" />
+            <span>Kho Lưu Trữ Bài Thi</span>
+            {exams.filter((e) => e.status === "archived").length > 0 && (
+              <span className="bg-amber-900/30 text-white text-[10px] font-mono font-bold px-1.5 py-0.2 rounded-full border border-white/20">
+                {exams.filter((e) => e.status === "archived").length}
+              </span>
+            )}
+          </button>
+
+          {/* New Exam Button */}
+          <button
+            onClick={() => setShowNewExamModal(true)}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2.5 rounded-xl text-xs shadow-md transition-all flex items-center justify-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Tạo Bài Thi Mới</span>
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Exam List */}
-        <div className="lg:col-span-4 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-3">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 px-1">
-            Danh Sách Bài Thi ({exams.length})
-          </h3>
+        {/* Left Column: Exam Repository List & Filters */}
+        <div className="lg:col-span-4 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+              <Archive className="w-4 h-4 text-indigo-600" />
+              <span>Kho Đề Thi ({filteredExams.length}/{exams.length})</span>
+            </h3>
 
-          <div className="space-y-2 max-h-[550px] overflow-y-auto pr-1">
-            {exams.map((exam) => {
-              const isSelected = selectedExam?.id === exam.id;
-              return (
-                <div
-                  key={exam.id}
-                  onClick={() => {
-                    setSelectedExam(exam);
-                    setActiveCode(Object.keys(exam.examKeys)[0] || "101");
-                  }}
-                  className={`p-4 rounded-xl border text-left cursor-pointer transition-all ${
-                    isSelected
-                      ? "bg-indigo-50/80 border-indigo-500 shadow-sm"
-                      : "bg-slate-50/60 border-slate-200 hover:bg-slate-100"
-                  }`}
+            <button
+              onClick={() => setShowArchiveModal(true)}
+              className="text-xs text-indigo-600 font-bold hover:underline flex items-center gap-1"
+            >
+              <span>Xem Tất Cả Kho</span>
+            </button>
+          </div>
+
+          {/* Filter Status Tabs */}
+          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+            <button
+              onClick={() => setStatusTabFilter("all")}
+              className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition-all ${
+                statusTabFilter === "all" ? "bg-white text-slate-900 shadow-xs" : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              Tất Cả ({exams.length})
+            </button>
+            <button
+              onClick={() => setStatusTabFilter("active")}
+              className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition-all ${
+                statusTabFilter === "active" ? "bg-white text-emerald-700 shadow-xs" : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              Kích Hoạt ({exams.filter((e) => e.status !== "archived" && e.status !== "draft").length})
+            </button>
+            <button
+              onClick={() => setStatusTabFilter("archived")}
+              className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition-all ${
+                statusTabFilter === "archived" ? "bg-white text-amber-700 shadow-xs" : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              Lưu Trữ ({exams.filter((e) => e.status === "archived").length})
+            </button>
+          </div>
+
+          {/* Quick Search & Filters */}
+          <div className="space-y-2">
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                placeholder="Tìm tên bài thi, môn, khối..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none"
+              />
+              {searchTerm && (
+                <button
+                  onClick={() => setSearchTerm("")}
+                  className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
                 >
-                  <div className="flex justify-between items-start gap-2">
-                    <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-indigo-100 text-indigo-700">
-                      {exam.subject}
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-mono">{exam.gradeClass}</span>
-                  </div>
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
 
-                  <h4 className="font-bold text-sm text-slate-900 mt-2 line-clamp-2">{exam.title}</h4>
+          {/* Exam Cards List */}
+          <div className="space-y-2.5 max-h-[520px] overflow-y-auto pr-1">
+            {filteredExams.length === 0 ? (
+              <div className="p-8 text-center text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                <FolderArchive className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                <p className="text-xs font-semibold">Không tìm thấy bài thi phù hợp</p>
+                <p className="text-[11px] mt-1 text-slate-400">Thử thay đổi từ khóa hoặc bộ lọc danh mục</p>
+              </div>
+            ) : (
+              filteredExams.map((exam) => {
+                const isSelected = selectedExam?.id === exam.id;
+                const isArchived = exam.status === "archived";
 
-                  <div className="mt-3 flex items-center justify-between text-xs text-slate-500 pt-2 border-t border-slate-200/50">
-                    <span>{exam.questionCount} câu hỏi</span>
-                    <span>{Object.keys(exam.examKeys).length} mã đề</span>
+                return (
+                  <div
+                    key={exam.id}
+                    onClick={() => {
+                      setSelectedExam(exam);
+                      setActiveCode(Object.keys(exam.examKeys)[0] || "101");
+                    }}
+                    className={`p-3.5 rounded-xl border text-left cursor-pointer transition-all relative group ${
+                      isSelected
+                        ? "bg-indigo-50/90 border-indigo-500 shadow-sm ring-1 ring-indigo-400/20"
+                        : isArchived
+                        ? "bg-slate-100/70 border-slate-300 opacity-80 hover:opacity-100"
+                        : "bg-slate-50/70 border-slate-200 hover:bg-slate-100/80"
+                    }`}
+                  >
+                    <div className="flex justify-between items-start gap-2">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-indigo-100 text-indigo-700">
+                          {exam.subject}
+                        </span>
+                        <span className="text-[10px] font-bold text-slate-500 font-mono">{exam.gradeClass}</span>
+                      </div>
+
+                      {/* Status Badge */}
+                      {isArchived ? (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200 flex items-center gap-1">
+                          <Archive className="w-2.5 h-2.5" />
+                          <span>Đã lưu trữ</span>
+                        </span>
+                      ) : exam.status === "draft" ? (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
+                          Bản nháp
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                          Kích hoạt
+                        </span>
+                      )}
+                    </div>
+
+                    <h4 className="font-bold text-sm text-slate-900 mt-2 line-clamp-2">{exam.title}</h4>
+
+                    <div className="mt-3 flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-200/50">
+                      <span>{exam.questionCount} câu hỏi • {Object.keys(exam.examKeys).length} mã đề</span>
+
+                      {/* Hover Quick Actions */}
+                      <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                        {/* Duplicate */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDuplicateExam(exam);
+                          }}
+                          className="p-1 text-slate-400 hover:text-indigo-600 rounded hover:bg-white transition-colors"
+                          title="Nhân bản bài thi"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+
+                        {/* Archive / Restore */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleArchiveExam(exam);
+                          }}
+                          className={`p-1 rounded transition-colors ${
+                            isArchived
+                              ? "text-amber-600 hover:text-amber-800 hover:bg-amber-100"
+                              : "text-slate-400 hover:text-amber-600 hover:bg-white"
+                          }`}
+                          title={isArchived ? "Khôi phục bài thi" : "Chuyển vào Kho Lưu Trữ"}
+                        >
+                          {isArchived ? <ArchiveRestore className="w-3.5 h-3.5" /> : <Archive className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         </div>
 
@@ -675,34 +1024,82 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
               {/* Header Details of selected exam */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="bg-indigo-600 text-white text-[10px] font-extrabold px-2 py-0.5 rounded">
                       {selectedExam.subject}
                     </span>
                     <span className="text-xs font-semibold text-slate-500">{selectedExam.gradeClass}</span>
+                    {selectedExam.status === "archived" ? (
+                      <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-300 flex items-center gap-1">
+                        <Archive className="w-3 h-3" />
+                        <span>Trạng thái: Trong Kho Lưu Trữ</span>
+                      </span>
+                    ) : (
+                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-300">
+                        Trạng thái: Đang Áp Dụng
+                      </span>
+                    )}
                   </div>
                   <h2 className="text-lg font-black text-slate-900 mt-1">{selectedExam.title}</h2>
                   <p className="text-xs text-slate-500">
-                    Thời gian: {selectedExam.durationMinutes} phút | Số câu hỏi: {selectedExam.questionCount} câu
+                    Thời gian: {selectedExam.durationMinutes} phút | Số câu hỏi: {selectedExam.questionCount} câu | Ngày tạo: {selectedExam.createdAt || "2026"}
                   </p>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Duplicate Exam */}
+                  <button
+                    onClick={() => handleDuplicateExam(selectedExam)}
+                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-2 rounded-xl text-xs transition-all border border-slate-200 flex items-center gap-1.5"
+                    title="Tạo bản sao bài thi này"
+                  >
+                    <Copy className="w-4 h-4 text-slate-600" />
+                    <span>Nhân Bản</span>
+                  </button>
+
+                  {/* Archive Toggle */}
+                  <button
+                    onClick={() => handleToggleArchiveExam(selectedExam)}
+                    className={`font-bold px-3 py-2 rounded-xl text-xs transition-all flex items-center gap-1.5 ${
+                      selectedExam.status === "archived"
+                        ? "bg-amber-600 hover:bg-amber-700 text-white shadow-xs"
+                        : "bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200"
+                    }`}
+                    title={selectedExam.status === "archived" ? "Khôi phục ra danh sách chính" : "Lưu trữ bài thi này"}
+                  >
+                    {selectedExam.status === "archived" ? (
+                      <>
+                        <ArchiveRestore className="w-4 h-4" />
+                        <span>Khôi Phục Bài Thi</span>
+                      </>
+                    ) : (
+                      <>
+                        <Archive className="w-4 h-4" />
+                        <span>Lưu Trữ Bài Thi</span>
+                      </>
+                    )}
+                  </button>
+
+                  {/* Edit Exam */}
                   <button
                     onClick={handleOpenEditModal}
-                    className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold px-3.5 py-2 rounded-xl text-xs transition-all border border-indigo-200 flex items-center gap-1.5"
+                    className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold px-3 py-2 rounded-xl text-xs transition-all border border-indigo-200 flex items-center gap-1.5"
                     title="Chỉnh sửa tên, môn, khối, số câu hỏi và thời gian thi"
                   >
                     <Edit3 className="w-4 h-4 text-indigo-600" />
-                    <span>Sửa Thông Tin Đề</span>
+                    <span>Sửa Thông Tin</span>
                   </button>
+
+                  {/* Print Sheet */}
                   <button
                     onClick={() => onOpenPrintSheet(selectedExam)}
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3.5 py-2 rounded-xl text-xs transition-all shadow-xs flex items-center gap-1.5"
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-2 rounded-xl text-xs transition-all shadow-xs flex items-center gap-1.5"
                   >
                     <Printer className="w-4 h-4" />
-                    <span>In Phiếu Thi OMR</span>
+                    <span>In Phiếu OMR</span>
                   </button>
+
+                  {/* Delete */}
                   <button
                     onClick={() => onDeleteExam(selectedExam.id)}
                     className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
@@ -1352,7 +1749,9 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
                 const keys = selectedExam.examKeys[code] || {};
                 const counts = { A: 0, B: 0, C: 0, D: 0 };
                 Object.values(keys).forEach((ans) => {
-                  if (ans in counts) counts[ans as keyof typeof counts]++;
+                  if (ans === "A" || ans === "B" || ans === "C" || ans === "D") {
+                    counts[ans]++;
+                  }
                 });
 
                 return (
@@ -1609,6 +2008,345 @@ export const ExamManager: React.FC<ExamManagerProps> = ({
                 className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs transition-all"
               >
                 Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 3: Kho Lưu Trữ Bài Kiểm Tra & Quản Lý Đề Thi Trực Tuyến */}
+      {showArchiveModal && (
+        <div className="fixed inset-0 z-[120] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-5xl w-full p-6 relative border border-slate-100 max-h-[90vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between border-b border-slate-100 pb-4 mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-amber-100 text-amber-700 rounded-2xl flex items-center justify-center shadow-xs">
+                  <FolderArchive className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-slate-900 flex items-center gap-2">
+                    <span>Kho Lưu Trữ Bài Kiểm Tra & Đề Thi</span>
+                    <span className="bg-amber-100 text-amber-800 text-xs font-mono font-bold px-2.5 py-0.5 rounded-full border border-amber-200">
+                      {exams.length} bài thi
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Trung tâm lưu trữ bài thi, khôi phục đề cũ, xuất nhập file sao lưu và quản lý hàng loạt bài kiểm tra.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setShowArchiveModal(false)}
+                className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Stats Cards Banner */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+              <div className="bg-slate-50 border border-slate-200/80 p-3 rounded-2xl">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tổng Bài Kiểm Tra</span>
+                <p className="text-lg font-black text-slate-900 mt-0.5 font-mono">{exams.length}</p>
+              </div>
+
+              <div className="bg-emerald-50/70 border border-emerald-200/80 p-3 rounded-2xl">
+                <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Đang Áp Dụng</span>
+                <p className="text-lg font-black text-emerald-800 mt-0.5 font-mono">
+                  {exams.filter((e) => e.status !== "archived" && e.status !== "draft").length}
+                </p>
+              </div>
+
+              <div className="bg-amber-50/70 border border-amber-200/80 p-3 rounded-2xl">
+                <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">Kho Lưu Trữ</span>
+                <p className="text-lg font-black text-amber-800 mt-0.5 font-mono">
+                  {exams.filter((e) => e.status === "archived").length}
+                </p>
+              </div>
+
+              <div className="bg-indigo-50/70 border border-indigo-200/80 p-3 rounded-2xl">
+                <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider">Bản Nháp</span>
+                <p className="text-lg font-black text-indigo-800 mt-0.5 font-mono">
+                  {exams.filter((e) => e.status === "draft").length}
+                </p>
+              </div>
+            </div>
+
+            {/* Action Bar: Import/Export & Batch Actions */}
+            <div className="bg-slate-900 text-white p-3 rounded-2xl mb-4 flex flex-wrap items-center justify-between gap-3 shadow-sm">
+              {/* Batch Actions */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    if (selectedBatchExamIds.length === filteredExams.length) {
+                      setSelectedBatchExamIds([]);
+                    } else {
+                      setSelectedBatchExamIds(filteredExams.map((e) => e.id));
+                    }
+                  }}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold px-3 py-1.5 rounded-xl text-xs transition-colors flex items-center gap-1.5 border border-slate-700"
+                >
+                  {selectedBatchExamIds.length === filteredExams.length && filteredExams.length > 0 ? (
+                    <CheckSquare className="w-3.5 h-3.5 text-indigo-400" />
+                  ) : (
+                    <Square className="w-3.5 h-3.5 text-slate-400" />
+                  )}
+                  <span>Chọn Tất Cả ({selectedBatchExamIds.length})</span>
+                </button>
+
+                {selectedBatchExamIds.length > 0 && (
+                  <>
+                    <button
+                      onClick={() => handleBatchArchiveExams("archived")}
+                      className="bg-amber-600 hover:bg-amber-500 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-colors flex items-center gap-1"
+                    >
+                      <Archive className="w-3.5 h-3.5" />
+                      <span>Lưu Trữ ({selectedBatchExamIds.length})</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleBatchArchiveExams("active")}
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-colors flex items-center gap-1"
+                    >
+                      <ArchiveRestore className="w-3.5 h-3.5" />
+                      <span>Khôi Phục ({selectedBatchExamIds.length})</span>
+                    </button>
+
+                    <button
+                      onClick={handleBatchDeleteExams}
+                      className="bg-red-600 hover:bg-red-500 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-colors flex items-center gap-1"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Xóa ({selectedBatchExamIds.length})</span>
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {/* Repository Backup Import/Export */}
+              <div className="flex items-center gap-2">
+                <label className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-xs">
+                  <UploadCloud className="w-3.5 h-3.5" />
+                  <span>Nhập Kho (File JSON)</span>
+                  <input
+                    type="file"
+                    accept=".json"
+                    onChange={handleImportRepositoryJSON}
+                    className="hidden"
+                  />
+                </label>
+
+                <button
+                  onClick={handleExportRepositoryJSON}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all flex items-center gap-1.5 shadow-xs"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Xuất Kho ({filteredExams.length} Bài)</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Filter controls */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3 bg-slate-50 p-3 rounded-2xl border border-slate-200">
+              {/* Filter Tabs */}
+              <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200">
+                <button
+                  onClick={() => setStatusTabFilter("all")}
+                  className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
+                    statusTabFilter === "all" ? "bg-indigo-600 text-white shadow-xs" : "text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  Tất Cả
+                </button>
+                <button
+                  onClick={() => setStatusTabFilter("active")}
+                  className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
+                    statusTabFilter === "active" ? "bg-emerald-600 text-white shadow-xs" : "text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  Đang Sử Dụng
+                </button>
+                <button
+                  onClick={() => setStatusTabFilter("archived")}
+                  className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
+                    statusTabFilter === "archived" ? "bg-amber-600 text-white shadow-xs" : "text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  Kho Lưu Trữ
+                </button>
+              </div>
+
+              {/* Search input */}
+              <div className="relative flex-1 max-w-xs">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  placeholder="Tìm theo tiêu đề, môn học..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                />
+              </div>
+            </div>
+
+            {/* Repository Table / Cards List */}
+            <div className="flex-1 overflow-y-auto pr-1 space-y-2">
+              {filteredExams.length === 0 ? (
+                <div className="p-12 text-center text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200 my-4">
+                  <FolderArchive className="w-10 h-10 mx-auto mb-2 text-slate-300" />
+                  <p className="text-sm font-bold text-slate-700">Kho lưu trữ bài thi trống hoặc không có kết quả phù hợp</p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Bạn có thể chuyển các bài thi đã kết thúc vào kho lưu trữ để làm gọn danh sách hoạt động.
+                  </p>
+                </div>
+              ) : (
+                filteredExams.map((exam) => {
+                  const isChecked = selectedBatchExamIds.includes(exam.id);
+                  const isArchived = exam.status === "archived";
+
+                  return (
+                    <div
+                      key={exam.id}
+                      className={`p-4 rounded-2xl border transition-all flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+                        isChecked
+                          ? "bg-indigo-50/90 border-indigo-400 ring-1 ring-indigo-400/30"
+                          : isArchived
+                          ? "bg-slate-50/80 border-slate-200"
+                          : "bg-white border-slate-200/80 hover:border-slate-300 shadow-2xs"
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <button
+                          onClick={() => {
+                            if (isChecked) {
+                              setSelectedBatchExamIds((prev) => prev.filter((id) => id !== exam.id));
+                            } else {
+                              setSelectedBatchExamIds((prev) => [...prev, exam.id]);
+                            }
+                          }}
+                          className="mt-1 text-slate-400 hover:text-indigo-600 transition-colors"
+                        >
+                          {isChecked ? (
+                            <CheckSquare className="w-5 h-5 text-indigo-600" />
+                          ) : (
+                            <Square className="w-5 h-5 text-slate-300" />
+                          )}
+                        </button>
+
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="bg-indigo-100 text-indigo-700 text-[10px] font-extrabold uppercase px-2 py-0.5 rounded">
+                              {exam.subject}
+                            </span>
+                            <span className="text-xs font-bold text-slate-500 font-mono">{exam.gradeClass}</span>
+                            {isArchived ? (
+                              <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-200 flex items-center gap-1">
+                                <Archive className="w-3 h-3" />
+                                <span>Kho lưu trữ</span>
+                              </span>
+                            ) : (
+                              <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-200">
+                                Đang hoạt động
+                              </span>
+                            )}
+                          </div>
+
+                          <h4 className="font-bold text-sm text-slate-900 mt-1">{exam.title}</h4>
+
+                          <div className="flex items-center gap-3 text-xs text-slate-500 mt-1 font-mono">
+                            <span>{exam.questionCount} câu hỏi</span>
+                            <span>•</span>
+                            <span>{Object.keys(exam.examKeys).length} mã đề</span>
+                            <span>•</span>
+                            <span>Thời gian: {exam.durationMinutes} phút</span>
+                            {exam.createdAt && (
+                              <>
+                                <span>•</span>
+                                <span>Tạo ngày: {exam.createdAt}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="flex flex-wrap items-center gap-2 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100">
+                        {/* Select for active editing */}
+                        <button
+                          onClick={() => {
+                            setSelectedExam(exam);
+                            setActiveCode(Object.keys(exam.examKeys)[0] || "101");
+                            setShowArchiveModal(false);
+                          }}
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition-all shadow-2xs"
+                        >
+                          Mở Chỉnh Sửa
+                        </button>
+
+                        {/* Duplicate */}
+                        <button
+                          onClick={() => handleDuplicateExam(exam)}
+                          className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-1.5 rounded-xl text-xs transition-colors flex items-center gap-1"
+                          title="Tạo bản sao bài thi"
+                        >
+                          <Copy className="w-3.5 h-3.5 text-slate-600" />
+                          <span>Nhân Bản</span>
+                        </button>
+
+                        {/* Archive / Restore Toggle */}
+                        <button
+                          onClick={() => handleToggleArchiveExam(exam)}
+                          className={`font-bold px-3 py-1.5 rounded-xl text-xs transition-colors flex items-center gap-1 ${
+                            isArchived
+                              ? "bg-amber-600 hover:bg-amber-700 text-white"
+                              : "bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200"
+                          }`}
+                        >
+                          {isArchived ? (
+                            <>
+                              <ArchiveRestore className="w-3.5 h-3.5" />
+                              <span>Khôi Phục</span>
+                            </>
+                          ) : (
+                            <>
+                              <Archive className="w-3.5 h-3.5" />
+                              <span>Lưu Trữ</span>
+                            </>
+                          )}
+                        </button>
+
+                        {/* Delete */}
+                        <button
+                          onClick={() => {
+                            if (window.confirm(`Bạn có chắc muốn XÓA bài thi '${exam.title}'?`)) {
+                              onDeleteExam(exam.id);
+                              triggerSaveToast(`Đã xóa bài thi '${exam.title}'!`);
+                            }
+                          }}
+                          className="bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 p-1.5 rounded-xl transition-colors"
+                          title="Xóa bài thi"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="border-t border-slate-100 pt-3 mt-4 flex items-center justify-between">
+              <span className="text-xs text-slate-500">
+                Tất cả dữ liệu kho bài thi được đồng bộ trực tiếp với cơ sở dữ liệu Supabase.
+              </span>
+              <button
+                onClick={() => setShowArchiveModal(false)}
+                className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs transition-all shadow-md"
+              >
+                Đóng Cửa Sổ Kho
               </button>
             </div>
           </div>
